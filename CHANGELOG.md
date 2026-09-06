@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.1 - 2026-09-07
+
+- Fix Icons mode footer entry points: 0.6.0 accidentally moved the
+  `canOpenIconsMode` picker-active gate onto `localIconsMode`, so once the
+  icon carousel replaced theme rows `themePickerActive` went false and
+  **Browse icons** / **Back** / **Icon defaults** all disappeared (title only).
+- Restore that gate on `canOpenIconsMode`; keep `localIconsMode` as
+  `iconsMode && !iconsBrowseMode`.
+- Place **Browse icons** on the far right (same as **Browse themes** /
+  **Browse Wallhaven**); **Icon defaults** sits to its left. Icon browse
+  gallery keeps Back / Install / Load more like Wallhaven/catalog.
+
 ## 0.6.0 - 2026-09-07
 
 - **Browse icons** — from Icons mode, open a Pling / gnome-look.org OCS gallery

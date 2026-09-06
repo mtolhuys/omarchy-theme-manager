@@ -9,7 +9,7 @@ const read = (path) => readFile(join(process.cwd(), path), "utf8")
 test("keeps the published Theme Manager identity as the sole picker clone", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   assert.equal(manifest.id, "io.github.mtolhuys.theme-manager")
-  assert.equal(manifest.version, "0.6.0")
+  assert.equal(manifest.version, "0.6.1")
   assert.deepEqual(manifest.kinds, ["overlay"])
   assert.match(manifest.entryPoints.overlay, /^v[0-9]{4}\/ImagePicker\.qml$/)
   assert.equal(manifest.omarchy.clonedFrom, "omarchy.image-picker")
@@ -156,6 +156,25 @@ test("ships theme-set memory hook, Icons showcase chip, and Actions dropdown", a
   assert.match(picker, /icons-browse\.sh/)
   assert.match(picker, /IconBrowseController/)
   assert.match(picker, /id: iconsBrowseOcsButton/)
+  assert.match(
+    picker,
+    /readonly property bool localIconsMode: iconsMode && !iconsBrowseMode\n/
+  )
+  assert.match(
+    picker,
+    /canOpenIconsMode:[\s\S]*?&& \(wallpaperPickerActive \|\| themeManager\.themePickerActive\)/
+  )
+  assert.match(picker, /text: iconBrowse\.loading \? "Loading…" : "Browse icons"/)
+  assert.match(
+    picker,
+    /visible: root\.showLabels \|\| root\.wallpaperPickerActive \|\| root\.iconsMode \|\| root\.iconsBrowseMode/
+  )
+  assert.match(
+    picker,
+    /anchors\.right: iconsBrowseOcsButton\.visible \? iconsBrowseOcsButton\.left : parent\.right/
+  )
+  assert.match(picker, /id: iconsBrowseBackButton/)
+  assert.match(picker, /id: iconsBrowseLoadMoreButton/)
 })
 
 test("delegates Pling icon browsing to the bounded icons-browse helper", async () => {

@@ -19,7 +19,7 @@ import "IconBrowseModel.js" as IconBrowseModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.6.0"
+  readonly property string buildIdentity: "0.6.1"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var manifest: null
@@ -136,8 +136,11 @@ Item {
   readonly property bool localWallpaperMode: wallpaperPickerActive && !wallhavenMode && !catalogMode && !iconsMode && !iconsBrowseMode
   readonly property bool iconsPickerActive: iconsMode || iconsBrowseMode
   readonly property bool canOpenIconsMode: !catalogMode && !wallhavenMode && !iconsMode && !iconsBrowseMode
-  readonly property bool localIconsMode: iconsMode && !iconsBrowseMode
     && (wallpaperPickerActive || themeManager.themePickerActive)
+  // Installed-icons carousel (not the Pling browse gallery). Do not gate on
+  // themePickerActive — once iconsMode swaps the carousel off themes,
+  // selectedThemeName goes empty and that flag falsely drops.
+  readonly property bool localIconsMode: iconsMode && !iconsBrowseMode
   readonly property bool hasWallpaperMemory: ThemeMemoryModel.hasWallpaperOverride(themeMemoryState, currentThemeName)
   readonly property bool hasIconsMemory: ThemeMemoryModel.hasIconsOverride(themeMemoryState, currentThemeName)
   readonly property bool canRemoveInstalledWallpaper: localWallpaperMode
@@ -2729,7 +2732,7 @@ Item {
 
       Item {
         id: footer
-        visible: root.showLabels || root.wallpaperPickerActive || root.iconsBrowseMode
+        visible: root.showLabels || root.wallpaperPickerActive || root.iconsMode || root.iconsBrowseMode
         anchors.top: carousel.bottom
         anchors.topMargin: Style.space(16)
         anchors.horizontalCenter: carousel.horizontalCenter
@@ -2789,8 +2792,15 @@ Item {
             if (width > 0) width += Style.space(8)
             width += uninstallButton.implicitWidth
           }
-          if (defaultsControls.visible)
-            width = Math.max(width, defaultsControls.implicitWidth)
+          // Icons mode: Icon defaults then Browse icons (Browse on the far right).
+          if (defaultsControls.visible) {
+            if (width > 0) width += Style.space(8)
+            width += defaultsControls.implicitWidth
+          }
+          if (iconsBrowseOcsButton.visible) {
+            if (width > 0) width += Style.space(8)
+            width += iconsBrowseOcsButton.implicitWidth
+          }
           if (loadMoreButton.visible)
             width = Math.max(width, loadMoreButton.implicitWidth)
           if (iconsBrowseLoadMoreButton.visible)
@@ -2798,10 +2808,6 @@ Item {
           if (iconsBrowseInstallButton.visible) {
             if (width > 0) width += Style.space(8)
             width += iconsBrowseInstallButton.implicitWidth
-          }
-          if (iconsBrowseOcsButton.visible) {
-            if (width > 0) width += Style.space(8)
-            width += iconsBrowseOcsButton.implicitWidth
           }
           if (catalogInstallButton.visible)
             width = Math.max(width, catalogInstallButton.implicitWidth)
@@ -3016,7 +3022,10 @@ Item {
         Row {
           id: defaultsControls
           visible: root.localIconsMode && !!root.currentThemeName
-          anchors.right: parent.right
+          // Sit left of Browse icons so Browse keeps the far-right slot
+          // (same chrome pattern as Themes / Wallpapers Browse buttons).
+          anchors.right: iconsBrowseOcsButton.visible ? iconsBrowseOcsButton.left : parent.right
+          anchors.rightMargin: iconsBrowseOcsButton.visible ? Style.space(8) : 0
           anchors.verticalCenter: parent.verticalCenter
           spacing: Style.space(8)
 
@@ -3148,9 +3157,12 @@ Item {
 
         Button {
           id: iconsBrowseOcsButton
+          // Far-right Browse control in Icons mode — mirrors Browse themes /
+          // Browse Wallhaven placement in the other section footers.
           visible: root.localIconsMode
           anchors.verticalCenter: parent.verticalCenter
           anchors.right: parent.right
+          z: 2
           text: iconBrowse.loading ? "Loading…" : "Browse icons"
           tooltipText: "Browse icon themes on gnome-look.org / Pling (B / Ctrl+B)"
           foreground: root.foreground

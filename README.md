@@ -77,6 +77,14 @@ Open the background switcher (`Super+Ctrl+Space`).
 - Local favorites, live palette, Remove/Reset for user backgrounds.
 - Wallhaven: type to search, **Filters** / `Ctrl+F`, **Load more** / `Ctrl+N`.
 
+### Icons mode
+
+Open from any picker footer Icons chip or `Ctrl+I`.
+
+- Footer: **Back** on the left; **Icon defaults** + **Browse icons** on the right.
+- **Browse icons** / `B` / `Ctrl+B` opens the Pling OCS gallery (search, sort,
+  Install, Load more / `Ctrl+N`, Filters / `Ctrl+F`).
+
 ### Keyboard shortcuts
 
 | Shortcut       | Action                                 |
@@ -89,7 +97,7 @@ Open the background switcher (`Super+Ctrl+Space`).
 | `Ctrl+F`       | Filters (catalog, Wallhaven, or icons) |
 | `Ctrl+D`       | Toggle wallpaper favorite              |
 | `Ctrl+Shift+D` | Favorites-only filter                  |
-| `Ctrl+N`       | Load more Wallhaven results            |
+| `Ctrl+N`       | Load more (Wallhaven / Browse icons)   |
 | `Delete`       | Uninstall theme (theme picker)         |
 | `Escape`       | Clear search / back / close            |
 
