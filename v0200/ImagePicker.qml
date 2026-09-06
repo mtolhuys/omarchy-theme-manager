@@ -14,11 +14,12 @@ import "ThemeMemoryModel.js" as ThemeMemoryModel
 import "ThemeCatalogModel.js" as ThemeCatalogModel
 import "WallpaperBrowserModel.js" as WallpaperBrowserModel
 import "WallpaperCommandModel.js" as WallpaperCommandModel
+import "IconBrowseModel.js" as IconBrowseModel
 
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.5.10"
+  readonly property string buildIdentity: "0.6.0"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var manifest: null
@@ -77,6 +78,11 @@ Item {
   property bool iconsPreviousFilterable: false
   property bool iconsPreviousShowLabels: false
   property bool iconsPreviousWallpaperRequest: false
+  property bool iconsBrowseMode: false
+  property var iconsBrowsePreviousImages: []
+  property int iconsBrowsePreviousIndex: 0
+  property string iconsBrowsePreviousFilter: ""
+  property var iconsBrowseFilters: ({ sorting: "new" })
   property var themeMemoryState: ({ version: 1, themes: {} })
   property string lastRestoredThemeName: ""
   property bool restoringThemeMemory: false
@@ -127,9 +133,10 @@ Item {
     return options
   }
   readonly property bool wallpaperPickerActive: wallpaperPickerRequest
-  readonly property bool localWallpaperMode: wallpaperPickerActive && !wallhavenMode && !catalogMode && !iconsMode
-  readonly property bool iconsPickerActive: iconsMode
-  readonly property bool canOpenIconsMode: !catalogMode && !wallhavenMode && !iconsMode
+  readonly property bool localWallpaperMode: wallpaperPickerActive && !wallhavenMode && !catalogMode && !iconsMode && !iconsBrowseMode
+  readonly property bool iconsPickerActive: iconsMode || iconsBrowseMode
+  readonly property bool canOpenIconsMode: !catalogMode && !wallhavenMode && !iconsMode && !iconsBrowseMode
+  readonly property bool localIconsMode: iconsMode && !iconsBrowseMode
     && (wallpaperPickerActive || themeManager.themePickerActive)
   readonly property bool hasWallpaperMemory: ThemeMemoryModel.hasWallpaperOverride(themeMemoryState, currentThemeName)
   readonly property bool hasIconsMemory: ThemeMemoryModel.hasIconsOverride(themeMemoryState, currentThemeName)
@@ -146,6 +153,9 @@ Item {
     atLeast: wallhaven.atLeast,
     colors: wallhaven.colors
   })
+  readonly property string iconsBrowseFilterSummary: IconBrowseModel.filterSummary(iconsBrowseFilters)
+  readonly property bool iconsBrowseFiltersActive: IconBrowseModel.filterKey(iconsBrowseFilters)
+    !== IconBrowseModel.filterKey({})
   readonly property bool wallhavenFiltersActive: WallpaperBrowserModel.filterKey({
     categories: wallhaven.categories,
     sorting: wallhaven.sorting,
@@ -184,7 +194,7 @@ Item {
   property int sliceHeight: 432
   property int sliceSpacing: -30
   property int skewOffset: 28
-  property int bottomChromeHeight: wallhavenMode || catalogMode || iconsMode
+  property int bottomChromeHeight: wallhavenMode || catalogMode || iconsMode || iconsBrowseMode
     ? (catalogMode ? 170 : 150)
     : (wallpaperPickerActive
         ? 96
@@ -234,11 +244,13 @@ Item {
         ? "catalog"
         : (wallhavenMode
             ? "wallhaven"
-            : (iconsMode
+            : (iconsBrowseMode
+                ? "icons-browse"
+                : (iconsMode
                 ? "icons"
                 : (themeManager.themePickerActive
                     ? "themes"
-                    : (wallpaperPickerActive ? "wallpapers" : "images")))),
+                    : (wallpaperPickerActive ? "wallpapers" : "images"))))),
       hasWallpaperMemory: hasWallpaperMemory,
       hasIconsMemory: hasIconsMemory,
       currentIconTheme: currentIconTheme,
@@ -260,6 +272,7 @@ Item {
     if (!opened) {
       if (catalogMode) leaveCatalog(false)
       if (wallhavenMode) leaveWallhaven(false)
+      if (iconsBrowseMode) leaveIconsBrowse(false)
       if (iconsMode) leaveIcons(false)
       statusToast = ""
       layoutSettled = false
@@ -926,7 +939,7 @@ Item {
   }
 
   function openIcons() {
-    if (!canOpenIconsMode) return
+    if (!canOpenIconsMode || iconsBrowseMode) return
     const script = pluginScriptPath("icons-inventory.sh")
     if (!script) return
 
@@ -969,6 +982,7 @@ Item {
   }
 
   function leaveIcons(restoreFocus) {
+    if (iconsBrowseMode) leaveIconsBrowse(false)
     if (!iconsMode) return
     iconsMode = false
     imageArray = iconsPreviousImages
@@ -984,6 +998,110 @@ Item {
     iconsPreviousShowLabels = false
     iconsPreviousWallpaperRequest = false
     if (restoreFocus !== false) Qt.callLater(focusPicker)
+  }
+
+  function openIconsBrowse() {
+    if (!iconsMode || iconsBrowseMode) return
+    const script = pluginScriptPath("icons-browse.sh")
+    if (!script) {
+      showStatus("Icon browse helper missing")
+      return
+    }
+
+    iconsBrowsePreviousImages = imageArray
+    iconsBrowsePreviousIndex = selectedIndex
+    iconsBrowsePreviousFilter = filterText
+    iconsBrowseMode = true
+    iconBrowseFilterSheet.opened = false
+    filterSheet.opened = false
+    catalogFilterSheet.opened = false
+    imageArray = []
+    selectedIndex = 0
+    filterText = ""
+    filterable = true
+    showLabels = true
+    imagesLoaded = true
+    layoutSettled = true
+    iconBrowse.sorting = IconBrowseModel.normalizeFilters(iconsBrowseFilters).sorting
+    iconBrowse.search("", false)
+    Qt.callLater(focusPicker)
+  }
+
+  function leaveIconsBrowse(restoreFocus) {
+    if (!iconsBrowseMode) return
+    iconsBrowseSearchTimer.stop()
+    iconBrowseFilterSheet.opened = false
+    iconBrowse.reset()
+    iconsBrowseMode = false
+    imageArray = iconsBrowsePreviousImages
+    selectedIndex = Math.min(iconsBrowsePreviousIndex, Math.max(0, imageArray.length - 1))
+    filterText = iconsBrowsePreviousFilter
+    iconsBrowsePreviousImages = []
+    iconsBrowsePreviousIndex = 0
+    iconsBrowsePreviousFilter = ""
+    if (restoreFocus !== false) Qt.callLater(focusPicker)
+  }
+
+  function acceptIconsBrowseResults(rows, append) {
+    if (!iconsBrowseMode || !Array.isArray(rows)) return
+    const previousIndex = selectedIndex
+    imageArray = append
+      ? IconBrowseModel.appendUniqueRows(imageArray, rows)
+      : rows
+    selectedIndex = append
+      ? Math.min(previousIndex, Math.max(0, imageArray.length - 1))
+      : 0
+    imagesLoaded = true
+    layoutSettled = true
+    Qt.callLater(focusPicker)
+  }
+
+  function searchIconsBrowse() {
+    if (!iconsBrowseMode) return
+    imageArray = []
+    selectedIndex = 0
+    iconBrowse.search(filterText, false)
+  }
+
+  function maybeLoadMoreIconsBrowse() {
+    if (!iconsBrowseMode
+        || iconBrowse.loading
+        || !iconBrowse.hasMore
+        || imageArray.length === 0
+        || selectedIndex < Math.max(0, imageArray.length - 10)) return
+    iconBrowse.loadMore()
+  }
+
+  function currentIconsBrowseFilters() {
+    return IconBrowseModel.normalizeFilters(iconsBrowseFilters)
+  }
+
+  function openIconsBrowseFilters() {
+    if (!iconsBrowseMode || iconBrowse.downloading) return
+    iconBrowseFilterSheet.openWith(currentIconsBrowseFilters())
+  }
+
+  function applyIconsBrowseFilters(filters) {
+    const normalized = IconBrowseModel.normalizeFilters(filters)
+    const changed = IconBrowseModel.filterKey(normalized)
+      !== IconBrowseModel.filterKey(currentIconsBrowseFilters())
+    iconsBrowseFilters = normalized
+    iconBrowse.sorting = normalized.sorting
+    if (changed) searchIconsBrowse()
+  }
+
+  function onIconPackInstalled(themeName, themeNames) {
+    const name = String(themeName || "").trim()
+    if (!name) return
+    leaveIconsBrowse(false)
+    if (!iconsMode) openIcons()
+    applyIconTheme(name, true)
+    const script = pluginScriptPath("icons-inventory.sh")
+    if (script) {
+      iconsInventoryProc.command = [script]
+      iconsInventoryProc.running = true
+    }
+    showStatus("Installed icons · " + IconThemeModel.labelForIconTheme(name))
   }
 
   function reorderWallpapers() {
@@ -1048,6 +1166,13 @@ Item {
       return parts.join("  ·  ")
     }
 
+    if (iconsBrowseMode) {
+      const parts = [String(item.displayName || "Icon pack")]
+      if (item.score) parts.push("score " + item.score)
+      if (item.downloads) parts.push(item.downloads + " downloads")
+      return parts.join("  ·  ")
+    }
+
     if (iconsMode) {
       const parts = [String(item.displayName || item.iconTheme || "Icons")]
       if (item.current || item.iconTheme === currentIconTheme) parts.push("active")
@@ -1081,7 +1206,7 @@ Item {
   }
 
   function filterTypingActive() {
-    return wallhavenMode || iconsMode || catalogMode || filterable
+    return wallhavenMode || iconsBrowseMode || iconsMode || catalogMode || filterable
   }
 
   function canUseLetterShortcut(event) {
@@ -1093,15 +1218,15 @@ Item {
 
   // Cross-nav closes this picker request and opens the other Omarchy switcher.
   function openWallpapersSwitcher() {
-    if (wallpaperPickerActive || iconsMode) return
+    if (wallpaperPickerActive || iconsMode || iconsBrowseMode) return
     if (!(themeManager.themePickerActive || catalogMode)) return
     Quickshell.execDetached(["omarchy-theme-bg-switcher"])
     cancel()
   }
 
   function openThemesSwitcher() {
-    if (themeManager.themePickerActive && !wallpaperPickerActive && !iconsMode) return
-    if (!(localWallpaperMode || wallhavenMode || iconsMode)) return
+    if (themeManager.themePickerActive && !wallpaperPickerActive && !iconsMode && !iconsBrowseMode) return
+    if (!(localWallpaperMode || wallhavenMode || iconsMode || iconsBrowseMode)) return
     Quickshell.execDetached(["omarchy-theme-switcher"])
     cancel()
   }
@@ -1111,7 +1236,11 @@ Item {
       openWallhaven()
       return true
     }
-    if (themeManager.themePickerActive && !catalogMode && !wallpaperPickerActive && !iconsMode) {
+    if (localIconsMode) {
+      openIconsBrowse()
+      return true
+    }
+    if (themeManager.themePickerActive && !catalogMode && !wallpaperPickerActive && !iconsMode && !iconsBrowseMode) {
       openCatalog()
       return true
     }
@@ -1119,7 +1248,7 @@ Item {
   }
 
   function enterCatalog(rows) {
-    if (wallhavenMode || iconsMode || !Array.isArray(rows) || rows.length === 0) return
+    if (wallhavenMode || iconsMode || iconsBrowseMode || !Array.isArray(rows) || rows.length === 0) return
 
     if (!catalogMode) {
       catalogPreviousImages = imageArray
@@ -1161,7 +1290,7 @@ Item {
   }
 
   function removeThemeFromRows(name) {
-    if (catalogMode || wallhavenMode || iconsMode) return
+    if (catalogMode || wallhavenMode || iconsMode || iconsBrowseMode) return
 
     const previousIndex = selectedIndex
     const nextImages = ThemeManagerModel.withoutNamedImage(imageArray, name)
@@ -1178,7 +1307,7 @@ Item {
   }
 
   function itemMatches(index) {
-    if (wallhavenMode)
+    if (wallhavenMode || iconsBrowseMode)
       return index >= 0 && index < imageArray.length
     if (iconsMode)
       return ImagePickerModel.itemMatches(imageArray, index, filterText)
@@ -1199,7 +1328,7 @@ Item {
   }
 
   function firstMatchingIndex() {
-    if (wallhavenMode) return imageArray.length > 0 ? 0 : -1
+    if (wallhavenMode || iconsBrowseMode) return imageArray.length > 0 ? 0 : -1
     for (let index = 0; index < imageArray.length; index++)
       if (itemMatches(index)) return index
     return -1
@@ -1227,6 +1356,7 @@ Item {
 
     selectedIndex = index
     if (wallhavenMode) Qt.callLater(maybeLoadMoreWallhaven)
+    if (iconsBrowseMode) Qt.callLater(maybeLoadMoreIconsBrowse)
   }
 
   function selectAdjacent(direction) {
@@ -1247,6 +1377,12 @@ Item {
     if (wallhavenMode) {
       filterText = WallpaperBrowserModel.normalizeQuery(nextFilterText)
       wallhavenSearchTimer.restart()
+      return
+    }
+
+    if (iconsBrowseMode) {
+      filterText = IconBrowseModel.normalizeQuery(nextFilterText)
+      iconsBrowseSearchTimer.restart()
       return
     }
 
@@ -1340,7 +1476,7 @@ Item {
   }
 
   function openWallhaven() {
-    if (catalogMode || iconsMode || !wallpaperPickerActive || wallhavenMode) return
+    if (catalogMode || iconsMode || iconsBrowseMode || !wallpaperPickerActive || wallhavenMode) return
 
     localImages = imageArray
     localSelectedIndex = selectedIndex
@@ -1447,6 +1583,13 @@ Item {
       return
     }
 
+    if (iconsBrowseMode) {
+      const item = currentItem()
+      if (!item || iconBrowse.downloading) return
+      iconBrowse.requestInstall(item)
+      return
+    }
+
     if (iconsMode) {
       const item = currentItem()
       if (!item || !item.iconTheme) return
@@ -1467,6 +1610,7 @@ Item {
   function cancel() {
     if (catalogMode) leaveCatalog(false)
     if (wallhavenMode) leaveWallhaven(false)
+    if (iconsBrowseMode) leaveIconsBrowse(false)
     if (iconsMode) leaveIcons(false)
 
     if (requestActive)
@@ -1481,6 +1625,7 @@ Item {
   function closeSelector(nextDoneFile) {
     if (catalogMode) leaveCatalog(false)
     if (wallhavenMode) leaveWallhaven(false)
+    if (iconsBrowseMode) leaveIconsBrowse(false)
     if (iconsMode) leaveIcons(false)
     requestSerial += 1
 
@@ -1525,6 +1670,7 @@ Item {
     ensureFooterIconsReady()
     if (catalogMode) leaveCatalog(false)
     if (wallhavenMode) leaveWallhaven(false)
+    if (iconsBrowseMode) leaveIconsBrowse(false)
     if (iconsMode) leaveIcons(false)
     if (requestActive && doneFile && doneFile !== nextDoneFile)
       finishDoneFile(doneFile)
@@ -1776,6 +1922,16 @@ Item {
   }
 
   Timer {
+    id: iconsBrowseSearchTimer
+    interval: 450
+    repeat: false
+    onTriggered: {
+      if (root.iconsBrowseMode)
+        root.searchIconsBrowse()
+    }
+  }
+
+  Timer {
     id: themeMemoryRestoreTimer
     interval: 250
     repeat: true
@@ -1991,6 +2147,15 @@ Item {
     onExited: root.releaseNextDoneFile()
   }
 
+  IconBrowseController {
+    id: iconBrowse
+    scriptPath: root.pluginScriptPath("icons-browse.sh")
+    sorting: IconBrowseModel.normalizeFilters(root.iconsBrowseFilters).sorting
+    onResultsReady: function(rows, append) { root.acceptIconsBrowseResults(rows, append) }
+    onIconInstalled: function(themeName, themeNames) { root.onIconPackInstalled(themeName, themeNames) }
+    onFocusRequested: Qt.callLater(root.focusPicker)
+  }
+
   WallpaperBrowserController {
     id: wallhaven
     onResultsReady: function(rows, append) { root.acceptWallhavenResults(rows, append) }
@@ -2083,13 +2248,19 @@ Item {
           return
         }
 
-        if (themeCatalog.confirmationOpen) {
+        if (iconBrowse.confirmationOpen) {
+          if (iconInstallConfirm.handleKey(event)) event.accepted = true
+        } else if (themeCatalog.confirmationOpen) {
           if (installConfirm.handleKey(event)) event.accepted = true
         } else if (themeManager.confirmationOpen) {
           if (uninstallConfirm.handleKey(event)) event.accepted = true
+        } else if (iconBrowseFilterSheet.opened) {
+          if (iconBrowseFilterSheet.handleKey(event)) event.accepted = true
         } else if (event.key === Qt.Key_Delete
                    && !root.catalogMode
                    && !root.wallhavenMode
+                   && !root.iconsMode
+                   && !root.iconsBrowseMode
                    && themeManager.themePickerActive) {
           themeManager.requestUninstall()
           event.accepted = true
@@ -2100,8 +2271,9 @@ Item {
           event.accepted = true
         } else if (event.key === Qt.Key_T
                    && root.canUseLetterShortcut(event)
-                   && (root.localWallpaperMode || root.wallhavenMode || root.iconsMode)) {
+                   && (root.localWallpaperMode || root.wallhavenMode || root.iconsMode || root.iconsBrowseMode)) {
           // Ctrl+T always; bare T only when filter typing is inactive.
+          if (root.iconsBrowseMode) root.leaveIconsBrowse(false)
           if (root.iconsMode) root.leaveIcons(false)
           if (root.wallhavenMode) root.leaveWallhaven(false)
           root.openThemesSwitcher()
@@ -2133,10 +2305,20 @@ Item {
                    && root.wallhavenMode) {
           wallhaven.loadMore()
           event.accepted = true
+        } else if (event.key === Qt.Key_N
+                   && (event.modifiers & Qt.ControlModifier) !== 0
+                   && root.iconsBrowseMode) {
+          iconBrowse.loadMore()
+          event.accepted = true
         } else if (event.key === Qt.Key_F
                    && (event.modifiers & Qt.ControlModifier) !== 0
                    && root.wallhavenMode) {
           root.openWallhavenFilters()
+          event.accepted = true
+        } else if (event.key === Qt.Key_F
+                   && (event.modifiers & Qt.ControlModifier) !== 0
+                   && root.iconsBrowseMode) {
+          root.openIconsBrowseFilters()
           event.accepted = true
         } else if (event.key === Qt.Key_F
                    && (event.modifiers & Qt.ControlModifier) !== 0
@@ -2159,6 +2341,8 @@ Item {
             root.updateFilter("")
           } else if (root.wallhavenMode) {
             root.leaveWallhaven(true)
+          } else if (root.iconsBrowseMode) {
+            root.leaveIconsBrowse(true)
           } else if (root.iconsMode) {
             root.leaveIcons(true)
           } else if (root.catalogMode) {
@@ -2170,7 +2354,7 @@ Item {
         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
           root.applySelected()
           event.accepted = true
-        } else if ((root.wallhavenMode || root.iconsMode || root.filterable) && Util.editsFilter(event, root.filterText)) {
+        } else if ((root.wallhavenMode || root.iconsBrowseMode || root.iconsMode || root.filterable) && Util.editsFilter(event, root.filterText)) {
           root.updateFilter(Util.editedFilter(event, root.filterText))
           event.accepted = true
         } else if (event.key === Qt.Key_Left || (event.key === Qt.Key_Tab && event.modifiers & Qt.ShiftModifier) || event.key === Qt.Key_Backtab) {
@@ -2179,7 +2363,7 @@ Item {
         } else if (event.key === Qt.Key_Right || event.key === Qt.Key_Tab) {
           root.selectAdjacent(1)
           event.accepted = true
-        } else if ((root.wallhavenMode || root.iconsMode || root.filterable)
+        } else if ((root.wallhavenMode || root.iconsBrowseMode || root.iconsMode || root.filterable)
                    && event.text
                    && event.text.length === 1
                    && event.text.charCodeAt(0) >= 32
@@ -2275,7 +2459,7 @@ Item {
             readonly property int relativeIndex: root.filteredPosition(index) - root.selectedFilteredPosition()
             readonly property bool selected: matched && index === root.selectedIndex
             readonly property bool nearby: matched
-              && Math.abs(relativeIndex) <= (root.wallhavenMode || root.catalogMode || root.iconsMode ? 7 : 16)
+              && Math.abs(relativeIndex) <= (root.wallhavenMode || root.catalogMode || root.iconsMode || root.iconsBrowseMode ? 7 : 16)
             property bool sourceActivated: nearby
             onNearbyChanged: if (nearby) sourceActivated = true
             onFilePathChanged: {
@@ -2356,24 +2540,24 @@ Item {
               Image {
                 id: image
                 anchors.fill: parent
-                // Aether owns local Wallhaven thumbnails. Theme catalog URLs
-                // have already passed ThemeCatalogModel's strict allowlist.
-                visible: !root.iconsMode
-                source: item.sourceActivated && item.thumbnailPath && !root.iconsMode
-                  ? (root.catalogMode
+                // Aether owns local Wallhaven thumbnails. Theme catalog and
+                // Pling preview URLs have already passed model allowlists.
+                visible: !root.iconsMode || root.iconsBrowseMode
+                source: item.sourceActivated && item.thumbnailPath && (!root.iconsMode || root.iconsBrowseMode)
+                  ? (root.catalogMode || root.iconsBrowseMode
                       ? item.thumbnailPath
                       : Util.fileUrl(item.thumbnailPath))
                   : ""
                 fillMode: Image.PreserveAspectCrop
-                asynchronous: root.wallhavenMode || root.catalogMode
-                cache: root.wallhavenMode || root.catalogMode
+                asynchronous: root.wallhavenMode || root.catalogMode || root.iconsBrowseMode
+                cache: root.wallhavenMode || root.catalogMode || root.iconsBrowseMode
                 smooth: true
               }
 
               Item {
                 id: iconPreviewPanel
                 anchors.fill: parent
-                visible: root.iconsMode
+                visible: root.iconsMode && !root.iconsBrowseMode
 
                 Rectangle {
                   anchors.fill: parent
@@ -2545,7 +2729,7 @@ Item {
 
       Item {
         id: footer
-        visible: root.showLabels || root.wallpaperPickerActive
+        visible: root.showLabels || root.wallpaperPickerActive || root.iconsBrowseMode
         anchors.top: carousel.bottom
         anchors.topMargin: Style.space(16)
         anchors.horizontalCenter: carousel.horizontalCenter
@@ -2558,6 +2742,10 @@ Item {
           wallhavenBackButton.implicitHeight,
           iconsBrowseButton.implicitHeight,
           iconsBackButton.implicitHeight,
+          iconsBrowseOcsButton.implicitHeight,
+          iconsBrowseBackButton.implicitHeight,
+          iconsBrowseInstallButton.implicitHeight,
+          iconsBrowseLoadMoreButton.implicitHeight,
           loadMoreButton.implicitHeight,
           themeBrowseButton.implicitHeight,
           catalogBackButton.implicitHeight,
@@ -2581,6 +2769,8 @@ Item {
             width = Math.max(width, wallhavenBackButton.implicitWidth)
           if (iconsBackButton.visible)
             width = Math.max(width, iconsBackButton.implicitWidth)
+          if (iconsBrowseBackButton.visible)
+            width = Math.max(width, iconsBrowseBackButton.implicitWidth)
           return width
         }
         readonly property real rightReserved: {
@@ -2603,6 +2793,16 @@ Item {
             width = Math.max(width, defaultsControls.implicitWidth)
           if (loadMoreButton.visible)
             width = Math.max(width, loadMoreButton.implicitWidth)
+          if (iconsBrowseLoadMoreButton.visible)
+            width = Math.max(width, iconsBrowseLoadMoreButton.implicitWidth)
+          if (iconsBrowseInstallButton.visible) {
+            if (width > 0) width += Style.space(8)
+            width += iconsBrowseInstallButton.implicitWidth
+          }
+          if (iconsBrowseOcsButton.visible) {
+            if (width > 0) width += Style.space(8)
+            width += iconsBrowseOcsButton.implicitWidth
+          }
           if (catalogInstallButton.visible)
             width = Math.max(width, catalogInstallButton.implicitWidth)
           return width
@@ -2815,7 +3015,7 @@ Item {
 
         Row {
           id: defaultsControls
-          visible: root.iconsMode && !!root.currentThemeName
+          visible: root.localIconsMode && !!root.currentThemeName
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
           spacing: Style.space(8)
@@ -2836,7 +3036,7 @@ Item {
 
         Text {
           id: selectedLabel
-          visible: root.showLabels || root.wallhavenMode || root.wallpaperPickerActive || root.iconsMode
+          visible: root.showLabels || root.wallhavenMode || root.wallpaperPickerActive || root.iconsMode || root.iconsBrowseMode
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.leftMargin: footer.leftReserved > 0 ? footer.leftReserved + Style.space(16) : 0
@@ -2846,7 +3046,7 @@ Item {
           color: root.foreground
           style: Text.Outline
           styleColor: Util.alpha(root.dimColor, 0.7)
-          font.pixelSize: root.wallhavenMode ? Style.font.title : Style.font.display
+          font.pixelSize: (root.wallhavenMode || root.iconsBrowseMode) ? Style.font.title : Style.font.display
           font.weight: Font.DemiBold
           horizontalAlignment: Text.AlignHCenter
           elide: Text.ElideMiddle
@@ -2855,7 +3055,7 @@ Item {
 
         Button {
           id: wallhavenBrowseButton
-          visible: root.wallpaperPickerActive && !root.wallhavenMode && !root.iconsMode
+          visible: root.wallpaperPickerActive && !root.wallhavenMode && !root.iconsMode && !root.iconsBrowseMode
           anchors.verticalCenter: parent.verticalCenter
           x: {
             let offset = 0
@@ -2947,8 +3147,78 @@ Item {
         }
 
         Button {
+          id: iconsBrowseOcsButton
+          visible: root.localIconsMode
+          anchors.verticalCenter: parent.verticalCenter
+          anchors.right: parent.right
+          text: iconBrowse.loading ? "Loading…" : "Browse icons"
+          tooltipText: "Browse icon themes on gnome-look.org / Pling (B / Ctrl+B)"
+          foreground: root.foreground
+          accent: root.livePaletteAccent
+          bordered: true
+          horizontalPadding: Style.space(12)
+          verticalPadding: Style.space(7)
+          onClicked: root.openIconsBrowse()
+        }
+
+        Button {
+          id: iconsBrowseBackButton
+          visible: root.iconsBrowseMode
+          anchors.left: parent.left
+          anchors.verticalCenter: parent.verticalCenter
+          text: "Back"
+          tooltipText: "Return to installed icon themes (Escape)"
+          foreground: root.foreground
+          accent: Color.accent
+          bordered: true
+          horizontalPadding: Style.space(12)
+          verticalPadding: Style.space(7)
+          onClicked: root.leaveIconsBrowse(true)
+        }
+
+        Button {
+          id: iconsBrowseInstallButton
+          visible: root.iconsBrowseMode
+          enabled: !!root.currentItem() && !iconBrowse.downloading && !iconBrowse.loading
+          anchors.right: iconsBrowseLoadMoreButton.visible ? iconsBrowseLoadMoreButton.left : parent.right
+          anchors.rightMargin: iconsBrowseLoadMoreButton.visible ? Style.space(8) : 0
+          anchors.verticalCenter: parent.verticalCenter
+          text: iconBrowse.downloading ? "Installing…" : "Install"
+          tooltipText: "Download and install this icon pack (Enter)"
+          foreground: Color.accent
+          accent: Color.accent
+          bordered: true
+          horizontalPadding: Style.space(12)
+          verticalPadding: Style.space(7)
+          onClicked: root.applySelected()
+        }
+
+        Button {
+          id: iconsBrowseLoadMoreButton
+          visible: root.iconsBrowseMode
+          enabled: iconBrowse.hasMore && !iconBrowse.loading
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          text: iconBrowse.loading
+            ? "Loading…"
+            : (iconBrowse.hasMore ? "Load more" : "All loaded")
+          tooltipText: iconBrowse.hasMore
+            ? "Load more Pling icon themes (Ctrl+N)"
+            : "All available results are loaded"
+          foreground: root.foreground
+          accent: Color.accent
+          bordered: true
+          horizontalPadding: Style.space(12)
+          verticalPadding: Style.space(7)
+          onClicked: {
+            iconBrowse.loadMore()
+            Qt.callLater(root.focusPicker)
+          }
+        }
+
+        Button {
           id: iconsBackButton
-          visible: root.iconsMode
+          visible: root.localIconsMode
           anchors.left: parent.left
           anchors.verticalCenter: parent.verticalCenter
           text: "Back"
@@ -2966,6 +3236,7 @@ Item {
           visible: !root.catalogMode
             && !root.wallhavenMode
             && !root.iconsMode
+            && !root.iconsBrowseMode
             && !root.wallpaperPickerActive
             && themeManager.themePickerActive
           anchors.left: parent.left
@@ -3001,6 +3272,7 @@ Item {
           visible: !root.catalogMode
             && !root.wallhavenMode
             && !root.iconsMode
+            && !root.iconsBrowseMode
             && !root.wallpaperPickerActive
             && themeManager.themePickerActive
           enabled: themeManager.inventoryReady
@@ -3083,6 +3355,7 @@ Item {
           visible: !root.catalogMode
             && !root.wallhavenMode
             && !root.iconsMode
+            && !root.iconsBrowseMode
             && themeManager.themePickerActive
             && themeManager.inventoryReady
             && themeManager.selectedThemeInstalled
@@ -3176,6 +3449,48 @@ Item {
             : "Type to search Wallhaven"
         }
         color: wallhaven.errorMessage ? Color.urgent : root.foreground
+        opacity: 0.9
+        style: Text.Outline
+        styleColor: Util.alpha(root.dimColor, 0.7)
+        font.pixelSize: Style.font.body
+        horizontalAlignment: Text.AlignHCenter
+        elide: Text.ElideRight
+        textFormat: Text.PlainText
+      }
+
+      IconBrowseFilterBar {
+        id: iconsBrowseFiltersBar
+        visible: root.iconsBrowseMode
+        anchors.top: footer.bottom
+        anchors.topMargin: Style.space(8)
+        anchors.horizontalCenter: carousel.horizontalCenter
+        height: implicitHeight
+        summary: root.iconsBrowseFilterSummary
+        filtersActive: root.iconsBrowseFiltersActive
+        foreground: root.foreground
+        accent: Color.accent
+        onOpenRequested: root.openIconsBrowseFilters()
+      }
+
+      Text {
+        visible: root.iconsBrowseMode
+        anchors.top: iconsBrowseFiltersBar.bottom
+        anchors.topMargin: Style.space(8)
+        anchors.horizontalCenter: carousel.horizontalCenter
+        width: root.expandedWidth
+        text: {
+          if (iconBrowse.downloading) return "Downloading icon pack from Pling…"
+          if (iconBrowse.errorMessage) return iconBrowse.errorMessage
+          if (iconBrowse.loading && root.imageArray.length > 0)
+            return "Loading more…  " + root.imageArray.length + " loaded"
+          if (iconBrowse.loading) return "Searching gnome-look.org icon themes…"
+          if (root.filterText)
+            return "Search: " + root.filterText + "  ·  " + root.imageArray.length + " loaded"
+          return iconBrowse.totalResults > 0
+            ? root.imageArray.length + " of " + iconBrowse.totalResults + " loaded  ·  Type to search"
+            : "Type to search Pling icon themes"
+        }
+        color: iconBrowse.errorMessage ? Color.urgent : root.foreground
         opacity: 0.9
         style: Text.Outline
         styleColor: Util.alpha(root.dimColor, 0.7)
@@ -3279,6 +3594,66 @@ Item {
         onCanceled: themeCatalog.cancelInstall()
         onConfirmed: themeCatalog.confirmInstall()
       }
+
+      ConfirmDialog {
+        id: iconInstallConfirm
+        anchors.fill: parent
+        opened: iconBrowse.confirmationOpen
+        z: 1000
+        message: iconBrowse.confirmationMessage
+        confirmText: "Install"
+        background: root.dimColor
+        foreground: root.foreground
+        scrim: root.scrim
+        selectedText: Color.accent
+        onCanceled: iconBrowse.cancelInstall()
+        onConfirmed: iconBrowse.confirmInstall()
+      }
+    }
+
+    Item {
+      visible: root.opened
+        && root.imagesLoaded
+        && root.layoutSettled
+        && root.iconsBrowseMode
+        && root.imageArray.length === 0
+      width: root.expandedWidth
+      height: 300
+      anchors.centerIn: parent
+
+      MouseArea { anchors.fill: parent; onClicked: {} }
+
+      Text {
+        id: iconsBrowseEmptyTitle
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenterOffset: -24
+        text: {
+          if (iconBrowse.errorMessage) return iconBrowse.errorMessage
+          if (iconBrowse.loading) return "Searching gnome-look.org icon themes…"
+          return root.filterText
+            ? "No icon themes found for “" + root.filterText + "”"
+            : "No icon themes found"
+        }
+        color: iconBrowse.errorMessage ? Color.urgent : root.foreground
+        font.pixelSize: Style.font.title
+        font.weight: Font.DemiBold
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.Wrap
+        textFormat: Text.PlainText
+      }
+
+      Text {
+        anchors.top: iconsBrowseEmptyTitle.bottom
+        anchors.topMargin: Style.space(10)
+        anchors.horizontalCenter: parent.horizontalCenter
+        text: "Type to search  ·  Escape to return to installed icons"
+        color: root.foreground
+        opacity: 0.75
+        font.pixelSize: Style.font.body
+        textFormat: Text.PlainText
+      }
     }
 
     Item {
@@ -3376,6 +3751,18 @@ Item {
       accent: Color.accent
       onCanceled: Qt.callLater(root.focusPicker)
       onApplied: function(filters) { root.applyThemeCatalogFilters(filters) }
+    }
+
+    IconBrowseFilterSheet {
+      id: iconBrowseFilterSheet
+
+      anchors.fill: parent
+      background: root.dimColor
+      foreground: root.foreground
+      scrim: Util.alpha(root.dimColor, 0.88)
+      accent: Color.accent
+      onCanceled: Qt.callLater(root.focusPicker)
+      onApplied: function(filters) { root.applyIconsBrowseFilters(filters) }
     }
   }
 }

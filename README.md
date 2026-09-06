@@ -12,8 +12,9 @@
 </p>
 
 <p align="center">
-  Themes, sticky wallpapers/icons, and Wallhaven browsing inside Omarchy's native
-  full-screen picker — one replacement for <code>omarchy.image-picker</code>.
+  Themes, sticky wallpapers/icons, Wallhaven, and Pling icon browsing inside
+  Omarchy's native full-screen picker — one replacement for
+  <code>omarchy.image-picker</code>.
 </p>
 
 ## Features
@@ -23,7 +24,9 @@
   (including native `omarchy-theme-set`).
 - **Icons mode** — `Ctrl+I` opens a live-preview grid of installed icon themes;
   the footer Icons chip shows three previews for the _highlighted_ theme
-  (sticky memory or package default).
+  (sticky memory or package default). **Browse icons** pulls Full Icon Themes
+  from gnome-look.org / Pling (OCS) with search + sort, then installs into
+  `~/.local/share/icons` and applies via sticky memory.
 - **Themes ⇄ Wallpapers cross-nav** — jump with footer chips or `Ctrl+T` /
   `Ctrl+W`; **Browse** stays on the right next to Icons.
 - **Theme catalog** — filters (listing / availability / sort / min stars),
@@ -80,10 +83,10 @@ Open the background switcher (`Super+Ctrl+Space`).
 | -------------- | -------------------------------------- |
 | `Ctrl+T` / `T` | Themes (bare `T` when search inactive) |
 | `Ctrl+W` / `W` | Wallpapers / leave Wallhaven           |
-| `B` / `Ctrl+B` | Browse (themes catalog or Wallhaven)   |
+| `B` / `Ctrl+B` | Browse (themes, Wallhaven, or icons)   |
 | `M`            | Actions menu (local wallpapers)        |
 | `Ctrl+I`       | Icons mode                             |
-| `Ctrl+F`       | Filters (catalog or Wallhaven)         |
+| `Ctrl+F`       | Filters (catalog, Wallhaven, or icons) |
 | `Ctrl+D`       | Toggle wallpaper favorite              |
 | `Ctrl+Shift+D` | Favorites-only filter                  |
 | `Ctrl+N`       | Load more Wallhaven results            |
@@ -115,6 +118,10 @@ not a security endorsement.
 Wallpapers: only Aether and Omarchy picker helpers; capped streaming output;
 validated ids; previews from Aether's thumbnail cache; downloads from Aether's
 wallpaper directory.
+
+Icon packs: only the `icons-browse.sh` helper talks to
+`api.gnome-look.org` OCS; downloads are size-capped, extracted with path-traversal
+guards, and installed under `~/.local/share/icons` after confirmation.
 
 No install hooks; no elevated privileges.
 

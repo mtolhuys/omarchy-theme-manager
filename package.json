@@ -1,6 +1,6 @@
 {
   "name": "omarchy-theme-manager",
-  "version": "0.5.10",
+  "version": "0.6.0",
   "private": true,
   "description": "Quality tooling for the Omarchy Theme Manager plugin.",
   "license": "MIT",
@@ -10,10 +10,10 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "lint:js": "eslint .",
-    "lint:qml": "/usr/lib/qt6/bin/qmllint -i /usr/share/omarchy/shell/Commons/qmldir -i /usr/share/omarchy/shell/Ui/qmldir v0200/ImagePicker.qml v0200/ThemeManagerController.qml v0200/ThemeCatalogController.qml v0200/WallpaperBrowserController.qml v0200/WallhavenFilterBar.qml v0200/WallhavenFilterSheet.qml v0200/ThemeCatalogFilterBar.qml v0200/ThemeCatalogFilterSheet.qml v0200/ImagePickerModel.js v0200/ThemeManagerModel.js v0200/ThemeCatalogModel.js v0200/WallpaperBrowserModel.js v0200/WallpaperCommandModel.js v0200/WallpaperPalette.qml v0200/WallpaperPaletteModel.js v0200/ThemeMemoryModel.js v0200/IconThemeModel.js",
-    "lint:shell": "shellcheck list.sh catalog.sh theme-inventory.sh icons-inventory.sh install-wallpaper.sh remove-wallpaper.sh reset-wallpaper.sh hooks/theme-set.d/50-theme-manager-memory tests/lab/acceptance.sh tests/lab/marketing-preview.sh && shfmt -d -i 2 -ci -bn list.sh catalog.sh theme-inventory.sh icons-inventory.sh install-wallpaper.sh remove-wallpaper.sh reset-wallpaper.sh hooks/theme-set.d/50-theme-manager-memory tests/lab/acceptance.sh tests/lab/marketing-preview.sh",
+    "lint:qml": "/usr/lib/qt6/bin/qmllint -i /usr/share/omarchy/shell/Commons/qmldir -i /usr/share/omarchy/shell/Ui/qmldir v0200/ImagePicker.qml v0200/ThemeManagerController.qml v0200/ThemeCatalogController.qml v0200/WallpaperBrowserController.qml v0200/IconBrowseController.qml v0200/WallhavenFilterBar.qml v0200/WallhavenFilterSheet.qml v0200/ThemeCatalogFilterBar.qml v0200/ThemeCatalogFilterSheet.qml v0200/IconBrowseFilterBar.qml v0200/IconBrowseFilterSheet.qml v0200/WallpaperPalette.qml v0200/ImagePickerModel.js v0200/ThemeManagerModel.js v0200/ThemeCatalogModel.js v0200/WallpaperBrowserModel.js v0200/WallpaperCommandModel.js v0200/WallpaperPaletteModel.js v0200/ThemeMemoryModel.js v0200/IconThemeModel.js v0200/IconBrowseModel.js",
+    "lint:shell": "shellcheck list.sh catalog.sh theme-inventory.sh icons-inventory.sh icons-browse.sh install-wallpaper.sh remove-wallpaper.sh reset-wallpaper.sh hooks/theme-set.d/50-theme-manager-memory tests/lab/acceptance.sh tests/lab/marketing-preview.sh && shfmt -d -i 2 -ci -bn list.sh catalog.sh theme-inventory.sh icons-inventory.sh icons-browse.sh install-wallpaper.sh remove-wallpaper.sh reset-wallpaper.sh hooks/theme-set.d/50-theme-manager-memory tests/lab/acceptance.sh tests/lab/marketing-preview.sh",
     "format:check": "prettier --check 'v*/**/*.js' 'tests/*.js' '*.mjs' '*.json' '*.md' 'assets/*.md'",
-    "format": "prettier --write 'v*/**/*.js' 'tests/*.js' '*.mjs' '*.json' '*.md' 'assets/*.md' && shfmt -w -i 2 -ci -bn list.sh catalog.sh theme-inventory.sh icons-inventory.sh install-wallpaper.sh remove-wallpaper.sh reset-wallpaper.sh tests/lab/acceptance.sh tests/lab/marketing-preview.sh",
+    "format": "prettier --write 'v*/**/*.js' 'tests/*.js' '*.mjs' '*.json' '*.md' 'assets/*.md' && shfmt -w -i 2 -ci -bn list.sh catalog.sh theme-inventory.sh icons-inventory.sh icons-browse.sh install-wallpaper.sh remove-wallpaper.sh reset-wallpaper.sh tests/lab/acceptance.sh tests/lab/marketing-preview.sh",
     "validate": "omarchy plugin validate .",
     "quality": "npm run test && npm run lint:js && npm run lint:shell && npm run lint:qml && npm run format:check && npm run validate"
   }

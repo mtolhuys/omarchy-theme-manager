@@ -9,7 +9,7 @@ const read = (path) => readFile(join(process.cwd(), path), "utf8")
 test("keeps the published Theme Manager identity as the sole picker clone", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   assert.equal(manifest.id, "io.github.mtolhuys.theme-manager")
-  assert.equal(manifest.version, "0.5.10")
+  assert.equal(manifest.version, "0.6.0")
   assert.deepEqual(manifest.kinds, ["overlay"])
   assert.match(manifest.entryPoints.overlay, /^v[0-9]{4}\/ImagePicker\.qml$/)
   assert.equal(manifest.omarchy.clonedFrom, "omarchy.image-picker")
@@ -43,7 +43,11 @@ test("versions the complete QML and JavaScript runtime graph", async () => {
     "ThemeCatalogFilterBar.qml",
     "ThemeCatalogFilterSheet.qml",
     "ThemeMemoryModel.js",
-    "IconThemeModel.js"
+    "IconThemeModel.js",
+    "IconBrowseController.qml",
+    "IconBrowseModel.js",
+    "IconBrowseFilterBar.qml",
+    "IconBrowseFilterSheet.qml"
   ]) {
     assert.ok((await read(join(runtimeDir, file))).length > 0, file)
   }
@@ -148,6 +152,33 @@ test("ships theme-set memory hook, Icons showcase chip, and Actions dropdown", a
   assert.match(picker, /function openThemesSwitcher/)
   assert.match(picker, /function browseForCurrentMode/)
   assert.match(picker, /packageIcons/)
+  assert.match(picker, /function openIconsBrowse/)
+  assert.match(picker, /icons-browse\.sh/)
+  assert.match(picker, /IconBrowseController/)
+  assert.match(picker, /id: iconsBrowseOcsButton/)
+})
+
+test("delegates Pling icon browsing to the bounded icons-browse helper", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const runtimeDir = dirname(manifest.entryPoints.overlay)
+  const picker = await read(join(runtimeDir, "ImagePicker.qml"))
+  const model = await read(join(runtimeDir, "IconBrowseModel.js"))
+  const controller = await read(join(runtimeDir, "IconBrowseController.qml"))
+  const helper = await read("icons-browse.sh")
+
+  assert.match(model, /images\\\.pling\\\.com/)
+  assert.match(model, /safePreviewUrl/)
+  assert.match(controller, /maxSearchOutputBytes/)
+  assert.match(controller, /icons-browse|scriptPath/)
+  assert.match(helper, /api\.gnome-look\.org/)
+  assert.match(helper, /OMARCHY_ICONS_OCS_CATEGORY:-132/)
+  assert.match(helper, /categories=\$\{category_id\}/)
+  assert.match(helper, /content\/download/)
+  assert.match(helper, /XDG_DATA_HOME:.*\.local\/share\}\/icons|icons_root=/)
+  assert.match(helper, /index\.theme/)
+  assert.match(picker, /iconBrowse\.requestInstall/)
+  assert.match(picker, /iconInstallConfirm/)
+  assert.doesNotMatch(picker, /api\.gnome-look\.org/)
 })
 
 test("installs external wallpapers into theme backgrounds for the local picker", async () => {
@@ -205,4 +236,3 @@ test("installs external wallpapers into theme backgrounds for the local picker",
   assert.match(await read("list.sh"), /4096/)
   assert.match(await read("install-wallpaper.sh"), /too small/)
 })
-

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0 - 2026-09-07
+
+- **Browse icons** — from Icons mode, open a Pling / gnome-look.org OCS gallery
+  (category 132 Full Icon Themes) with search, sort (newest / downloads / score),
+  preview thumbnails, confirmation, and safe install into `~/.local/share/icons`.
+- Network via `icons-browse.sh` (not QML curl); Esc returns to installed icons;
+  install applies through existing sticky `applyIconTheme` memory.
+
 ## 0.5.10 - 2026-09-06
 
 - Fix Icons chip cold-start: after shell restart the footer showed plain
@@ -75,7 +83,6 @@
 - Fix still-stale **Remove** tiles: clear the carousel model and force a
   `list.sh` rescan of `imageDirs` after delete/reset so ghosts vanish immediately
   without closing the picker (in-memory Repeater surgery was not enough).
-
 
 ## 0.5.2 - 2026-09-06
 
