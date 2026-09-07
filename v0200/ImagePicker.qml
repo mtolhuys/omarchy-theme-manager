@@ -19,7 +19,7 @@ import "IconBrowseModel.js" as IconBrowseModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.6.1"
+  readonly property string buildIdentity: "0.6.2"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var manifest: null
@@ -65,6 +65,7 @@ Item {
   property string pendingInstallPurpose: ""
   property string pendingInstallSelectionFile: ""
   property string pendingInstallDoneFile: ""
+  property string pendingInstallSourcePath: ""
   property int pendingInstallSerial: 0
   readonly property string currentIconsThemePath: stateHome + "/omarchy/current/theme/icons.theme"
   property string currentThemeName: ""
@@ -88,8 +89,11 @@ Item {
   property bool restoringThemeMemory: false
   // Captured outside Process StdioCollector — root.wallpaper*Proc is undefined
   // inside those collectors and threw before accept could run (Remove TypeError).
+  // Install uses the same onExited-driven accept pattern so a missed/empty
+  // onStreamFinished cannot leave a copied wallpaper unset until reopen.
   property string wallpaperRemoveStdout: ""
   property string wallpaperResetStdout: ""
+  property string wallpaperInstallStdout: ""
   property string statusToast: ""
   property var iconsInventoryThemes: []
   property string footerIconFolder: ""
@@ -354,6 +358,7 @@ Item {
     pendingInstallPurpose = ""
     pendingInstallSelectionFile = ""
     pendingInstallDoneFile = ""
+    pendingInstallSourcePath = ""
     pendingInstallSerial = 0
   }
 
@@ -375,7 +380,9 @@ Item {
     pendingInstallPurpose = String(purpose || "")
     pendingInstallSelectionFile = String(selectionPath || "")
     pendingInstallDoneFile = String(donePath || "")
+    pendingInstallSourcePath = target
     pendingInstallSerial = serial || 0
+    wallpaperInstallStdout = ""
     wallpaperInstallProc.command = command
     wallpaperInstallProc.running = true
     return true
@@ -424,6 +431,34 @@ Item {
     selectedIndex = 0
     selectedImage = target
     reorderWallpapers()
+    return true
+  }
+
+  // Wallhaven keeps a snapshot in localImages; finish closes via selection files
+  // but onOpenedChanged → leaveWallhaven restores that snapshot. Keep it in sync
+  // so an intermittent leave/reopen race still shows the newly installed tile.
+  function syncInstalledWallpaperIntoLocalSnapshot(path) {
+    const target = ThemeMemoryModel.safePath(path)
+    if (!target) return false
+    const base = ThemeMemoryModel.imageBasename(target) || target.split("/").pop()
+    const row = {
+      filePath: target,
+      fileName: base,
+      thumbnailPath: target
+    }
+    let next = Array.isArray(localImages) ? localImages.slice() : []
+    for (let index = 0; index < next.length; index++) {
+      const item = next[index]
+      if (!item) continue
+      if (item.filePath === target || (base && item.fileName === base)) {
+        next[index] = row
+        localImages = next
+        localSelectedIndex = index
+        return true
+      }
+    }
+    localImages = [row].concat(next)
+    localSelectedIndex = 0
     return true
   }
 
@@ -507,6 +542,15 @@ Item {
 
     if (purpose === "finish") {
       rememberWallpaperSelection(installed)
+      if (wallhavenMode)
+        syncInstalledWallpaperIntoLocalSnapshot(installed)
+      // Belt-and-suspenders: menu-images waiter also bg-sets after the selection
+      // file is written. Direct set covers the intermittent case where accept ran
+      // but the waiter already moved on / selection handoff raced.
+      if (!memoryBgProc.running) {
+        memoryBgProc.command = ["omarchy-theme-bg-set", installed]
+        memoryBgProc.running = true
+      }
       applySerial = serial || requestSerial
       applyProc.command = [
         "bash",
@@ -541,6 +585,9 @@ Item {
         themeMemoryVerifyTimer.restart()
       }
     }
+
+    if (wallhavenMode)
+      syncInstalledWallpaperIntoLocalSnapshot(installed)
 
     if (localWallpaperMode)
       injectWallpaperIntoCarousel(installed)
@@ -2120,11 +2167,28 @@ Item {
     id: wallpaperInstallProc
     stdout: StdioCollector {
       waitForEnd: true
-      onStreamFinished: root.acceptInstalledWallpaper(String(text || "").trim())
+      onStreamFinished: {
+        // Never accept here — mirror Remove/Reset. Driving accept from
+        // onStreamFinished alone missed successful installs when stdout
+        // collection was empty/late, leaving the file on disk unset until reopen.
+        root.wallpaperInstallStdout = String(text || "").trim()
+      }
     }
     onExited: function(exitCode) {
-      if (exitCode === 0) return
+      if (exitCode === 0) {
+        let installed = String(root.wallpaperInstallStdout || "").trim()
+        if (!installed) {
+          installed = ThemeMemoryModel.installedWallpaperPath(
+            root.pendingInstallSourcePath,
+            root.homeDir,
+            root.currentThemeName)
+        }
+        root.wallpaperInstallStdout = ""
+        root.acceptInstalledWallpaper(installed)
+        return
+      }
       const purpose = String(root.pendingInstallPurpose || "")
+      root.wallpaperInstallStdout = ""
       root.clearPendingInstall()
       if (purpose === "finish") {
         root.cancel()

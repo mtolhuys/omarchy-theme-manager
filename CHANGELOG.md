@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.2 - 2026-09-07
+
+- Harden Wallhaven/external wallpaper install→apply against an intermittent race:
+  `wallpaperInstallProc` now captures stdout on a root property and drives
+  `acceptInstalledWallpaper` from `onExited` when `exitCode === 0` (same pattern
+  as Remove/Reset). A missed or empty `onStreamFinished` previously left the
+  copied file on disk unset until the picker was reopened.
+- Fallback to `ThemeMemoryModel.installedWallpaperPath` when stdout is empty on
+  a successful install exit.
+- On finish: sync the Wallhaven `localImages` snapshot and call
+  `omarchy-theme-bg-set` directly as belt-and-suspenders beside the existing
+  selection-file handoff (happy path unchanged).
+
 ## 0.6.1 - 2026-09-07
 
 - Fix Icons mode footer entry points: 0.6.0 accidentally moved the
