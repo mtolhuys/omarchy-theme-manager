@@ -237,4 +237,19 @@ test("filters and sorts theme catalog rows locally", () => {
       minStars: 50
     }
   )
+  assert.deepEqual(
+    model.parseCatalogFilterState(
+      model.serializeCatalogFilters({ listing: "official", minStars: 10 }, "matte black")
+    ),
+    {
+      filters: {
+        listing: "official",
+        availability: "all",
+        sort: "best",
+        minStars: 10
+      },
+      query: "matte black"
+    }
+  )
+  assert.equal(model.catalogFilterActiveCount({ listing: "community", minStars: 50 }), 2)
 })

@@ -7,6 +7,7 @@ Row {
 
   property string summary: "All categories  ·  Latest ↓  ·  1080p+"
   property bool filtersActive: false
+  property int activeCount: 0
   property color foreground: Color.foreground
   property color accent: Color.accent
 
@@ -15,11 +16,16 @@ Row {
   spacing: Style.space(10)
 
   Button {
+    id: filtersChip
     anchors.verticalCenter: parent.verticalCenter
-    text: "Filters"
-    tooltipText: "Choose Wallhaven filters (Ctrl+F)"
+    text: root.filtersActive && root.activeCount > 0
+      ? ("Filters · " + root.activeCount)
+      : "Filters"
+    tooltipText: root.filtersActive
+      ? ("Active filters: " + root.summary)
+      : "Open filters (Ctrl+F)"
     selected: root.filtersActive
-    foreground: root.foreground
+    foreground: root.filtersActive ? root.accent : root.foreground
     accent: root.accent
     bordered: true
     horizontalPadding: Style.space(12)
@@ -27,12 +33,34 @@ Row {
     onClicked: root.openRequested()
   }
 
+  Rectangle {
+    visible: root.filtersActive
+    anchors.verticalCenter: parent.verticalCenter
+    width: badgeText.implicitWidth + Style.space(10)
+    height: Math.max(Style.space(18), badgeText.implicitHeight + Style.space(4))
+    radius: height / 2
+    color: Util.alpha(root.accent, 0.22)
+    border.color: root.accent
+    border.width: 1
+
+    Text {
+      id: badgeText
+      anchors.centerIn: parent
+      text: root.activeCount > 0 ? (root.activeCount + " active") : "Active"
+      color: root.accent
+      font.pixelSize: Style.font.caption
+      font.weight: Font.DemiBold
+      textFormat: Text.PlainText
+    }
+  }
+
   Text {
     anchors.verticalCenter: parent.verticalCenter
     text: root.summary
-    color: root.foreground
-    opacity: 0.78
+    color: root.filtersActive ? root.accent : root.foreground
+    opacity: root.filtersActive ? 0.95 : 0.78
     font.pixelSize: Style.font.bodySmall
+    font.weight: root.filtersActive ? Font.DemiBold : Font.Normal
     textFormat: Text.PlainText
   }
 }

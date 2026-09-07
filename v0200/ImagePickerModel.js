@@ -69,6 +69,13 @@ const levenshteinAtMost = (left, right, maxDistance) => {
   return previous[b.length] <= limit
 }
 
+const fuzzyDistanceForToken = (token) => {
+  const length = stringValue(token).length
+  if (length >= 8) return 2
+  if (length >= 4) return 1
+  return 0
+}
+
 const tokenMatchesHaystack = (token, hayNormalized, hayCompact) => {
   const needle = stringValue(token)
   if (!needle) return true
@@ -78,11 +85,15 @@ const tokenMatchesHaystack = (token, hayNormalized, hayCompact) => {
   if (compactNeedle && hayCompact.includes(compactNeedle)) return true
 
   const words = hayNormalized.split(" ").filter(Boolean)
+  const maxDistance = fuzzyDistanceForToken(needle)
   for (const word of words) {
     if (word.includes(needle)) return true
-    // Per-token fuzzy only: subsequence or edit distance 1 on a single word.
-    if (isSubsequence(needle, word)) return true
-    if (needle.length >= 4 && word.length >= 4 && levenshteinAtMost(needle, word, 1)) return true
+    // Prefer prefix/containment of meaningful word fragments inside the token.
+    if (word.length >= 3 && needle.includes(word) && needle.length <= word.length + 2) return true
+    // Per-token fuzzy: subsequence or bounded edit distance on a single word.
+    if (needle.length >= 3 && isSubsequence(needle, word)) return true
+    if (maxDistance > 0 && word.length >= 4 && levenshteinAtMost(needle, word, maxDistance))
+      return true
   }
 
   return false
@@ -94,8 +105,28 @@ const textMatches = (haystack, filterText) => {
 
   const hayNormalized = normalizeSearchText(haystack)
   const hayCompact = compactSearchText(haystack)
+  const compactNeedle = compactSearchText(filterText)
+
+  // Whole-phrase / compact hits before token AND (multi-word & hyphen-insensitive).
+  if (hayNormalized.includes(needle)) return true
+  if (compactNeedle && hayCompact.includes(compactNeedle)) return true
+
   const tokens = needle.split(" ").filter(Boolean)
-  return tokens.every((token) => tokenMatchesHaystack(token, hayNormalized, hayCompact))
+  if (tokens.length === 0) return true
+  if (tokens.every((token) => tokenMatchesHaystack(token, hayNormalized, hayCompact))) return true
+
+  // Soft fallback: require all but one token when the query is long enough.
+  // Avoids false negatives on multi-word names with a single typo token.
+  if (tokens.length >= 3) {
+    let misses = 0
+    for (const token of tokens) {
+      if (!tokenMatchesHaystack(token, hayNormalized, hayCompact)) misses += 1
+      if (misses > 1) return false
+    }
+    return true
+  }
+
+  return false
 }
 
 const loadRows = (rows) => {
@@ -176,7 +207,9 @@ if (typeof module !== "undefined") {
     compactSearchText,
     isSubsequence,
     levenshteinAtMost,
+    fuzzyDistanceForToken,
     textMatches,
+    itemSearchHaystack,
     loadRows,
     itemMatches,
     firstMatchingIndex,

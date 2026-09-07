@@ -84,7 +84,7 @@ test("builds Aether search arguments with the same safe defaults", () => {
     "--purity",
     "100",
     "--sorting",
-    "date_added",
+    "relevance",
     "--order",
     "desc",
     "--page",
@@ -93,8 +93,27 @@ test("builds Aether search arguments with the same safe defaults", () => {
     "1920x1080",
     "solar punk"
   ])
+  assert.deepEqual(model.searchArguments("", 3, 2), [
+    "aether",
+    "--wallhaven-thumbs",
+    "--json",
+    "--pages",
+    "2",
+    "--categories",
+    "111",
+    "--purity",
+    "100",
+    "--sorting",
+    "date_added",
+    "--order",
+    "desc",
+    "--page",
+    "3",
+    "--at-least",
+    "1920x1080"
+  ])
   assert.equal(model.searchArguments("a; touch /tmp/nope").at(-1), "a; touch /tmp/nope")
-  assert.equal(model.normalizeQuery("night\ncity\u0000"), "night city ")
+  assert.equal(model.normalizeQuery("night\ncity\u0000"), "night city")
 })
 
 test("normalizes the supported Aether filters", () => {
@@ -330,6 +349,43 @@ test("appends unique pages without mutating the inputs", () => {
   )
   assert.equal(first.length, 1)
   assert.equal(second.length, 2)
+})
+
+test("persists Wallhaven filters and upgrades Latest→Relevant for queries", () => {
+  assert.equal(model.normalizeQuery("  neon   city  "), "neon city")
+  assert.equal(model.filtersActive({}), false)
+  assert.equal(model.filtersActive({ sorting: "views" }), true)
+  assert.equal(model.filterActiveCount({ sorting: "views", colors: "0066cc" }), 2)
+
+  const effective = model.effectiveSearchFilters("mountains", { sorting: "date_added" })
+  assert.equal(effective.sorting, "relevance")
+  assert.equal(model.effectiveSearchFilters("", { sorting: "date_added" }).sorting, "date_added")
+  assert.equal(model.effectiveSearchFilters("mountains", { sorting: "favorites" }).sorting, "favorites")
+
+  const args = model.searchArguments("city night", 1, 2, { sorting: "date_added" })
+  assert.equal(args[args.indexOf("--sorting") + 1], "relevance")
+  assert.equal(args.at(-1), "city night")
+
+  const roundTrip = model.parseFilters(
+    model.serializeFilters(
+      {
+        categories: "010",
+        sorting: "favorites",
+        order: "asc",
+        atLeast: "3840x2160",
+        colors: "0066cc"
+      },
+      " neon city "
+    )
+  )
+  assert.deepEqual(roundTrip.filters, {
+    categories: "010",
+    sorting: "favorites",
+    order: "asc",
+    atLeast: "3840x2160",
+    colors: "0066cc"
+  })
+  assert.equal(roundTrip.query, "neon city")
 })
 
 test("accepts downloads only from Aether's wallpaper directory", () => {

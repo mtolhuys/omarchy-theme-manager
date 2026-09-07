@@ -46,6 +46,7 @@ const normalizeQuery = (query) =>
   stringValue(query)
     .replace(/[\u0000-\u001f\u007f]/g, " ")
     .replace(/\s+/g, " ")
+    .trim()
     .slice(0, maxQueryLength)
 
 const isWallpaperPickerDirs = (imageDirs) =>
@@ -148,6 +149,54 @@ const filterSummary = (filters) => {
   if (normalized.colors) summary.push(colorLabel(normalized.colors) + " palette")
   return summary.join("  ·  ")
 }
+
+const defaultFilters = () => normalizeFilters({})
+
+const filtersActive = (filters) => filterKey(filters) !== filterKey(defaultFilters())
+
+const filterActiveCount = (filters) => {
+  const normalized = normalizeFilters(filters)
+  const defaults = defaultFilters()
+  let count = 0
+  if (normalized.categories !== defaults.categories) count += 1
+  if (normalized.sorting !== defaults.sorting) count += 1
+  if (normalized.order !== defaults.order) count += 1
+  if (normalized.atLeast !== defaults.atLeast) count += 1
+  if (normalized.colors !== defaults.colors) count += 1
+  return count
+}
+
+// When typing a Wallhaven query, Latest (date_added) ranks poorly vs Relevant.
+// Keep the user's stored sorting; only rewrite the outbound Aether request.
+const effectiveSearchFilters = (query, filters) => {
+  const normalized = normalizeFilters(filters)
+  if (normalizeQuery(query) && normalized.sorting === "date_added") {
+    return { ...normalized, sorting: "relevance" }
+  }
+  return normalized
+}
+
+const serializeFilters = (filters, query = "") =>
+  JSON.stringify(
+    {
+      ...normalizeFilters(filters),
+      query: normalizeQuery(query)
+    },
+    null,
+    2
+  ) + "\n"
+
+const parseFilters = (raw) => {
+  try {
+    const parsed = JSON.parse(stringValue(raw) || "{}")
+    return {
+      filters: normalizeFilters(parsed),
+      query: normalizeQuery(parsed && parsed.query)
+    }
+  } catch (_error) {
+    return { filters: defaultFilters(), query: "" }
+  }
+}
 const cloneOptions = (options) =>
   options.map((option) => ({ value: option.value, label: option.label }))
 const getSortingOptions = () => cloneOptions(sortingOptions)
@@ -155,7 +204,7 @@ const getResolutionOptions = () => cloneOptions(resolutionOptions)
 const getColorOptions = () => cloneOptions(colorOptions)
 
 const searchArguments = (query, page = 1, pages = 2, filters = {}) => {
-  const normalizedFilters = normalizeFilters(filters)
+  const normalizedFilters = effectiveSearchFilters(query, filters)
   const args = [
     "aether",
     "--wallhaven-thumbs",
@@ -175,7 +224,7 @@ const searchArguments = (query, page = 1, pages = 2, filters = {}) => {
   ]
   if (normalizedFilters.atLeast) args.push("--at-least", normalizedFilters.atLeast)
   if (normalizedFilters.colors) args.push("--colors", normalizedFilters.colors)
-  const normalizedQuery = normalizeQuery(query).trim()
+  const normalizedQuery = normalizeQuery(query)
   if (normalizedQuery) args.push(normalizedQuery)
   return args
 }
@@ -356,6 +405,12 @@ if (typeof module !== "undefined") {
     colorLabel,
     categorySummary,
     filterSummary,
+    defaultFilters,
+    filtersActive,
+    filterActiveCount,
+    effectiveSearchFilters,
+    serializeFilters,
+    parseFilters,
     getSortingOptions,
     getResolutionOptions,
     getColorOptions,

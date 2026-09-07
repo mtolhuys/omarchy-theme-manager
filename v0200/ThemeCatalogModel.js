@@ -169,6 +169,13 @@ const minStarsOptions = [
 const optionForValue = (options, value) =>
   options.find((option) => String(option.value) === String(value))
 
+const normalizeCatalogQuery = (value) =>
+  stringValue(value)
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120)
+
 const defaultCatalogFilters = () => ({
   listing: "all",
   availability: "all",
@@ -189,6 +196,17 @@ const normalizeCatalogFilters = (filters) => {
     sort: optionForValue(sortOptions, sort) ? sort : "best",
     minStars: optionForValue(minStarsOptions, minStars) ? minStars : 0
   }
+}
+
+const catalogFilterActiveCount = (filters) => {
+  const normalized = normalizeCatalogFilters(filters)
+  const defaults = defaultCatalogFilters()
+  let count = 0
+  if (normalized.listing !== defaults.listing) count += 1
+  if (normalized.availability !== defaults.availability) count += 1
+  if (normalized.sort !== defaults.sort) count += 1
+  if (normalized.minStars !== defaults.minStars) count += 1
+  return count
 }
 
 const catalogFilterKey = (filters) => {
@@ -269,14 +287,34 @@ const getAvailabilityOptions = () => cloneOptions(availabilityOptions)
 const getCatalogSortOptions = () => cloneOptions(sortOptions)
 const getMinStarsOptions = () => cloneOptions(minStarsOptions)
 
-const serializeCatalogFilters = (filters) =>
-  JSON.stringify(normalizeCatalogFilters(filters), null, 2) + "\n"
+const serializeCatalogFilters = (filters, query = "") =>
+  JSON.stringify(
+    {
+      ...normalizeCatalogFilters(filters),
+      query: normalizeCatalogQuery(query)
+    },
+    null,
+    2
+  ) + "\n"
 
 const parseCatalogFilters = (raw) => {
   try {
-    return normalizeCatalogFilters(JSON.parse(stringValue(raw) || "{}"))
+    const parsed = JSON.parse(stringValue(raw) || "{}")
+    return normalizeCatalogFilters(parsed)
   } catch (_error) {
     return defaultCatalogFilters()
+  }
+}
+
+const parseCatalogFilterState = (raw) => {
+  try {
+    const parsed = JSON.parse(stringValue(raw) || "{}")
+    return {
+      filters: normalizeCatalogFilters(parsed),
+      query: normalizeCatalogQuery(parsed && parsed.query)
+    }
+  } catch (_error) {
+    return { filters: defaultCatalogFilters(), query: "" }
   }
 }
 
@@ -310,6 +348,7 @@ if (typeof module !== "undefined") {
     normalizeCatalogFilters,
     catalogFilterKey,
     catalogFiltersActive,
+    catalogFilterActiveCount,
     catalogFilterSummary,
     itemMatchesCatalogFilters,
     applyCatalogFilters,
@@ -317,7 +356,9 @@ if (typeof module !== "undefined") {
     getAvailabilityOptions,
     getCatalogSortOptions,
     getMinStarsOptions,
+    normalizeCatalogQuery,
     serializeCatalogFilters,
-    parseCatalogFilters
+    parseCatalogFilters,
+    parseCatalogFilterState
   }
 }

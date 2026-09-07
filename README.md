@@ -29,11 +29,13 @@
   `~/.local/share/icons` and applies via sticky memory.
 - **Themes ⇄ Wallpapers cross-nav** — jump with footer chips or `Ctrl+T` /
   `Ctrl+W`; **Browse** stays on the right next to Icons.
-- **Theme catalog** — filters (listing / availability / sort / min stars),
+- **Theme catalog** — sticky filters (listing / availability / sort / min stars)
+  in `~/.config/omarchy/theme-catalog-filters.json` (includes last search query),
   fuzzy search, install/uninstall with confirmations, official Omarchy badge.
 - **Wallpaper picker** — favorites (`Ctrl+D`), live palette while browsing,
   Actions hamburger (Save / All / Reset / Remove), Wallhaven via Aether.
-- **Wallhaven** — SFW search, filters, load-more; downloads install into the
+- **Wallhaven** — SFW search, sticky filters + last query in
+  `~/.config/omarchy/wallhaven-filters.json`, load-more; downloads install into the
   theme backgrounds folder so they appear in the local carousel.
 
 ## Requirements

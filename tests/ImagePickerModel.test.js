@@ -107,3 +107,12 @@ test("selects the requested image and falls back predictably", () => {
   assert.equal(model.nextSelectedIndexForFilter(images, 2, "mocha"), 1)
   assert.equal(model.nextSelectedIndexForFilter(images, 1, "mocha"), 1)
 })
+
+test("supports soft multi-word and compact fuzzy matches", () => {
+  assert.equal(model.itemMatches(images, 3, "van gogh art"), true)
+  assert.equal(model.itemMatches(images, 3, "vangoghstarry"), true)
+  assert.equal(model.itemMatches(images, 1, "catpuccin mocha"), true)
+  assert.equal(model.itemMatches(images, 4, "aether soft"), true)
+  assert.equal(model.textMatches("Matte Black Theme", "matte blak"), true)
+  assert.equal(model.textMatches("Tokyo Night Storm", "tokyo strom night"), true)
+})

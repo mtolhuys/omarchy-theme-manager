@@ -19,7 +19,7 @@ import "IconBrowseModel.js" as IconBrowseModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.6.2"
+  readonly property string buildIdentity: "0.6.3"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var manifest: null
@@ -50,8 +50,12 @@ Item {
   property bool catalogPreviousShowLabels: false
   property var catalogSourceRows: []
   property var catalogFilters: ({ listing: "all", availability: "all", sort: "best", minStars: 0 })
+  property string catalogStickyQuery: ""
   readonly property string catalogFiltersPath: Quickshell.env("HOME") + "/.config/omarchy/theme-catalog-filters.json"
   property bool wallhavenMode: false
+  property string wallhavenStickyQuery: ""
+  property bool wallhavenFiltersReady: false
+  readonly property string wallhavenFiltersPath: Quickshell.env("HOME") + "/.config/omarchy/wallhaven-filters.json"
   property var localImages: []
   property int localSelectedIndex: 0
   property string localFilterText: ""
@@ -163,15 +167,23 @@ Item {
   readonly property string iconsBrowseFilterSummary: IconBrowseModel.filterSummary(iconsBrowseFilters)
   readonly property bool iconsBrowseFiltersActive: IconBrowseModel.filterKey(iconsBrowseFilters)
     !== IconBrowseModel.filterKey({})
-  readonly property bool wallhavenFiltersActive: WallpaperBrowserModel.filterKey({
+  readonly property bool wallhavenFiltersActive: WallpaperBrowserModel.filtersActive({
     categories: wallhaven.categories,
     sorting: wallhaven.sorting,
     order: wallhaven.order,
     atLeast: wallhaven.atLeast,
     colors: wallhaven.colors
-  }) !== WallpaperBrowserModel.filterKey({})
+  })
+  readonly property int wallhavenFilterActiveCount: WallpaperBrowserModel.filterActiveCount({
+    categories: wallhaven.categories,
+    sorting: wallhaven.sorting,
+    order: wallhaven.order,
+    atLeast: wallhaven.atLeast,
+    colors: wallhaven.colors
+  })
   readonly property string catalogFilterSummary: ThemeCatalogModel.catalogFilterSummary(catalogFilters)
   readonly property bool catalogFiltersActive: ThemeCatalogModel.catalogFiltersActive(catalogFilters)
+  readonly property int catalogFilterActiveCount: ThemeCatalogModel.catalogFilterActiveCount(catalogFilters)
   // Bound to the central [image-picker] section in shell.toml via Color.qml.
   // dimColor tints unselected slices and text outlines on top of the scrim.
   property color dimColor: Color.background
@@ -1310,18 +1322,18 @@ Item {
 
     catalogMode = true
     catalogSourceRows = rows
-    imageArray = ThemeCatalogModel.applyCatalogFilters(rows, catalogFilters)
-    selectedIndex = 0
-    filterText = ""
     filterable = true
     showLabels = true
-    if (imageArray.length === 0) selectedIndex = 0
+    filterText = catalogStickyQuery
+    refreshCatalogRows()
     Qt.callLater(focusPicker)
   }
 
   function leaveCatalog(restoreFocus) {
     if (!catalogMode) return
 
+    catalogStickyQuery = ThemeCatalogModel.normalizeCatalogQuery(filterText)
+    persistCatalogFilters()
     catalogFilterSheet.opened = false
     catalogMode = false
     catalogSourceRows = []
@@ -1357,7 +1369,8 @@ Item {
   }
 
   function itemMatches(index) {
-    if (wallhavenMode || iconsBrowseMode)
+    // Catalog/Wallhaven/icons-browse already bake search into imageArray.
+    if (wallhavenMode || iconsBrowseMode || catalogMode)
       return index >= 0 && index < imageArray.length
     if (iconsMode)
       return ImagePickerModel.itemMatches(imageArray, index, filterText)
@@ -1369,23 +1382,19 @@ Item {
           item.filePath,
           wallpaperFavoriteContext())) return false
     }
-    if (!ImagePickerModel.itemMatches(imageArray, index, filterText)) return false
-    if (catalogMode) {
-      if (index < 0 || index >= imageArray.length) return false
-      return ThemeCatalogModel.itemMatchesCatalogFilters(imageArray[index], catalogFilters)
-    }
-    return true
+    return ImagePickerModel.itemMatches(imageArray, index, filterText)
   }
 
   function firstMatchingIndex() {
-    if (wallhavenMode || iconsBrowseMode) return imageArray.length > 0 ? 0 : -1
+    if (wallhavenMode || iconsBrowseMode || catalogMode)
+      return imageArray.length > 0 ? 0 : -1
     for (let index = 0; index < imageArray.length; index++)
       if (itemMatches(index)) return index
     return -1
   }
 
   function filteredPosition(index) {
-    if (wallhavenMode) return index
+    if (wallhavenMode || catalogMode) return index
     let position = 0
     for (let candidate = 0; candidate < index; candidate++)
       if (itemMatches(candidate)) position += 1
@@ -1393,7 +1402,7 @@ Item {
   }
 
   function selectedFilteredPosition() {
-    if (wallhavenMode) return selectedIndex
+    if (wallhavenMode || catalogMode) return selectedIndex
     return itemMatches(selectedIndex) ? filteredPosition(selectedIndex) : 0
   }
 
@@ -1426,13 +1435,23 @@ Item {
   function updateFilter(nextFilterText) {
     if (wallhavenMode) {
       filterText = WallpaperBrowserModel.normalizeQuery(nextFilterText)
+      wallhavenStickyQuery = filterText
       wallhavenSearchTimer.restart()
+      wallhavenPersistTimer.restart()
       return
     }
 
     if (iconsBrowseMode) {
       filterText = IconBrowseModel.normalizeQuery(nextFilterText)
       iconsBrowseSearchTimer.restart()
+      return
+    }
+
+    if (catalogMode) {
+      filterText = ThemeCatalogModel.normalizeCatalogQuery(nextFilterText)
+      catalogStickyQuery = filterText
+      refreshCatalogRows()
+      catalogPersistTimer.restart()
       return
     }
 
@@ -1476,6 +1495,7 @@ Item {
     wallhaven.order = normalized.order
     wallhaven.atLeast = normalized.atLeast
     wallhaven.colors = normalized.colors
+    persistWallhavenFilters()
 
     if (changed) searchWallhaven()
     else Qt.callLater(focusPicker)
@@ -1486,11 +1506,53 @@ Item {
   }
 
   function loadCatalogFiltersState(raw) {
-    catalogFilters = ThemeCatalogModel.parseCatalogFilters(raw)
+    const state = ThemeCatalogModel.parseCatalogFilterState(raw)
+    catalogFilters = state.filters
+    catalogStickyQuery = state.query
+    if (catalogMode) refreshCatalogRows()
   }
 
   function persistCatalogFilters() {
-    catalogFiltersFile.setText(ThemeCatalogModel.serializeCatalogFilters(catalogFilters))
+    catalogFiltersFile.setText(
+      ThemeCatalogModel.serializeCatalogFilters(catalogFilters, catalogStickyQuery)
+    )
+  }
+
+  function refreshCatalogRows() {
+    if (!catalogMode) return
+
+    const source = Array.isArray(catalogSourceRows) ? catalogSourceRows : []
+    const selectedPath = currentPath()
+    const textMatched = []
+    for (let index = 0; index < source.length; index++) {
+      if (ImagePickerModel.itemMatches(source, index, filterText))
+        textMatched.push(source[index])
+    }
+
+    // Prefer AND of text + sheet filters. If that yields nothing but the name
+    // search itself hits rows, fall back to text-only so sticky stars/listing
+    // filters do not create false "no results" for an exact theme name.
+    let nextRows = ThemeCatalogModel.applyCatalogFilters(textMatched, catalogFilters)
+    if (nextRows.length === 0 && filterText && textMatched.length > 0 && catalogFiltersActive) {
+      // Name search wins over restrictive sticky sheet filters (keep sort only).
+      nextRows = ThemeCatalogModel.applyCatalogFilters(textMatched, {
+        listing: "all",
+        availability: "all",
+        sort: catalogFilters.sort,
+        minStars: 0
+      })
+    }
+
+    imageArray = nextRows
+    if (imageArray.length === 0) {
+      selectedIndex = 0
+      return
+    }
+
+    const restored = ImagePickerModel.indexForSelectedImage(imageArray, selectedPath)
+    selectedIndex = selectedPath && imageArray[restored] && imageArray[restored].filePath === selectedPath
+      ? restored
+      : 0
   }
 
   function openCatalogFilters() {
@@ -1508,21 +1570,25 @@ Item {
       return
     }
 
-    const selectedPath = currentPath()
-    imageArray = ThemeCatalogModel.applyCatalogFilters(catalogSourceRows, normalized)
-    if (imageArray.length === 0) {
-      selectedIndex = 0
-    } else {
-      const restored = ImagePickerModel.indexForSelectedImage(imageArray, selectedPath)
-      selectedIndex = selectedPath && imageArray[restored] && imageArray[restored].filePath === selectedPath
-        ? restored
-        : 0
-      if (!itemMatches(selectedIndex)) {
-        const first = firstMatchingIndex()
-        selectedIndex = first >= 0 ? first : 0
-      }
-    }
+    refreshCatalogRows()
     Qt.callLater(focusPicker)
+  }
+
+  function loadWallhavenFiltersState(raw) {
+    const state = WallpaperBrowserModel.parseFilters(raw)
+    wallhaven.categories = state.filters.categories
+    wallhaven.sorting = state.filters.sorting
+    wallhaven.order = state.filters.order
+    wallhaven.atLeast = state.filters.atLeast
+    wallhaven.colors = state.filters.colors
+    wallhavenStickyQuery = state.query
+    wallhavenFiltersReady = true
+  }
+
+  function persistWallhavenFilters() {
+    wallhavenFiltersFile.setText(
+      WallpaperBrowserModel.serializeFilters(currentWallhavenFilters(), wallhavenStickyQuery)
+    )
   }
 
   function openWallhaven() {
@@ -1536,17 +1602,20 @@ Item {
     catalogFilterSheet.opened = false
     imageArray = []
     selectedIndex = 0
-    filterText = ""
+    filterText = wallhavenStickyQuery
     imagesLoaded = true
     layoutSettled = true
-    wallhaven.search("", false)
+    wallhaven.search(filterText, false)
     Qt.callLater(focusPicker)
   }
 
   function leaveWallhaven(restoreFocus) {
     if (!wallhavenMode) return
 
+    wallhavenStickyQuery = WallpaperBrowserModel.normalizeQuery(filterText)
+    persistWallhavenFilters()
     wallhavenSearchTimer.stop()
+    wallhavenPersistTimer.stop()
     filterSheet.opened = false
     wallhaven.reset()
     wallhavenMode = false
@@ -1848,6 +1917,15 @@ Item {
   }
 
   FileView {
+    id: wallhavenFiltersFile
+    path: root.wallhavenFiltersPath
+    atomicWrites: true
+    printErrors: false
+    onLoaded: root.loadWallhavenFiltersState(text())
+    onLoadFailed: root.loadWallhavenFiltersState("")
+  }
+
+  FileView {
     id: wallpaperCommandState
     path: root.wallpaperCommandStatePath
     atomicWrites: true
@@ -1969,6 +2047,20 @@ Item {
       if (root.wallhavenMode)
         root.searchWallhaven()
     }
+  }
+
+  Timer {
+    id: wallhavenPersistTimer
+    interval: 500
+    repeat: false
+    onTriggered: root.persistWallhavenFilters()
+  }
+
+  Timer {
+    id: catalogPersistTimer
+    interval: 500
+    repeat: false
+    onTriggered: root.persistCatalogFilters()
   }
 
   Timer {
@@ -2421,7 +2513,7 @@ Item {
         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
           root.applySelected()
           event.accepted = true
-        } else if ((root.wallhavenMode || root.iconsBrowseMode || root.iconsMode || root.filterable) && Util.editsFilter(event, root.filterText)) {
+        } else if ((root.wallhavenMode || root.iconsBrowseMode || root.iconsMode || root.catalogMode || root.filterable) && Util.editsFilter(event, root.filterText)) {
           root.updateFilter(Util.editedFilter(event, root.filterText))
           event.accepted = true
         } else if (event.key === Qt.Key_Left || (event.key === Qt.Key_Tab && event.modifiers & Qt.ShiftModifier) || event.key === Qt.Key_Backtab) {
@@ -2430,7 +2522,7 @@ Item {
         } else if (event.key === Qt.Key_Right || event.key === Qt.Key_Tab) {
           root.selectAdjacent(1)
           event.accepted = true
-        } else if ((root.wallhavenMode || root.iconsBrowseMode || root.iconsMode || root.filterable)
+        } else if ((root.wallhavenMode || root.iconsBrowseMode || root.iconsMode || root.catalogMode || root.filterable)
                    && event.text
                    && event.text.length === 1
                    && event.text.charCodeAt(0) >= 32
@@ -3501,6 +3593,7 @@ Item {
         height: implicitHeight
         summary: root.wallhavenFilterSummary
         filtersActive: root.wallhavenFiltersActive
+        activeCount: root.wallhavenFilterActiveCount
         foreground: root.foreground
         accent: Color.accent
         onOpenRequested: root.openWallhavenFilters()
@@ -3585,6 +3678,7 @@ Item {
         height: implicitHeight
         summary: root.catalogFilterSummary
         filtersActive: root.catalogFiltersActive
+        activeCount: root.catalogFilterActiveCount
         foreground: root.foreground
         accent: Color.accent
         onOpenRequested: root.openCatalogFilters()
@@ -3615,9 +3709,12 @@ Item {
         Text {
           visible: !root.wallhavenMode && root.filterable && root.filterText
           width: parent.width
-          text: root.filterText
-          color: root.foreground
-          opacity: 0.85
+          text: root.catalogMode
+            ? ("Search: " + root.filterText + "  ·  " + root.imageArray.length + " shown"
+                + (root.catalogFiltersActive ? "  ·  " + root.catalogFilterSummary : ""))
+            : root.filterText
+          color: root.catalogMode && root.catalogFiltersActive ? Color.accent : root.foreground
+          opacity: 0.9
           style: Text.Outline
           styleColor: Util.alpha(root.dimColor, 0.7)
           font.pixelSize: Style.font.title
@@ -3770,9 +3867,11 @@ Item {
         anchors.top: emptyStateTitle.bottom
         anchors.topMargin: Style.space(10)
         anchors.horizontalCenter: parent.horizontalCenter
-        text: "Type to search  ·  Escape to return to local wallpapers"
-        color: root.foreground
-        opacity: 0.75
+        text: root.wallhavenFiltersActive
+          ? ("Active filters may hide matches  ·  " + root.wallhavenFilterSummary)
+          : "Type to search  ·  Escape to return to local wallpapers"
+        color: root.wallhavenFiltersActive ? Color.accent : root.foreground
+        opacity: 0.85
         font.pixelSize: Style.font.body
         textFormat: Text.PlainText
       }
@@ -3785,6 +3884,7 @@ Item {
         height: implicitHeight
         summary: root.wallhavenFilterSummary
         filtersActive: root.wallhavenFiltersActive
+        activeCount: root.wallhavenFilterActiveCount
         foreground: root.foreground
         accent: Color.accent
         onOpenRequested: root.openWallhavenFilters()

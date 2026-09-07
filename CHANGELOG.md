@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.3 - 2026-09-07
+
+- **Sticky filters**: Wallhaven sheet filters + last query persist in
+  `~/.config/omarchy/wallhaven-filters.json` and restore on Browse Wallhaven /
+  mode re-entry / shell restart. Theme catalog filters keep using
+  `~/.config/omarchy/theme-catalog-filters.json`, now also sticky for the last
+  name search query across leave/reopen.
+- **Visible active filters**: Filters chip shows a count badge, accent summary,
+  and stronger selected state when non-default filters are on (Wallhaven +
+  catalog).
+- **Search that finds things**: looser-but-safe fuzzy matching (phrase/compact
+  hits, typo distance by token length, soft multi-word); catalog name search
+  rebuilds from full source rows and will not be blanked by sticky stars/listing
+  alone; Wallhaven text queries auto-use Relevant sort when the stored sort is
+  Latest.
+
 ## 0.6.2 - 2026-09-07
 
 - Harden Wallhaven/external wallpaper install→apply against an intermittent race:
