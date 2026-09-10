@@ -18,7 +18,7 @@ import "WallpaperCommandModel.js" as WallpaperCommandModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.5.11"
+  readonly property string buildIdentity: "0.5.12"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var manifest: null
@@ -269,9 +269,22 @@ Item {
     return omarchyPath + "/shell/plugins/image-picker/" + name
   }
 
+  function localPath(url) {
+    var value = String(url || "")
+    if (value.indexOf("file://") === 0) value = value.substring(7)
+    try {
+      return decodeURIComponent(value)
+    } catch (e) {
+      return value
+    }
+  }
+
   function pluginScriptPath(name) {
-    const sourceDir = manifest && manifest.__sourceDir ? String(manifest.__sourceDir) : ""
-    return sourceDir ? sourceDir.replace(/\/$/, "") + "/" + name : ""
+    // Third-party manifests do not expose the host's private source directory
+    // (Omarchy 4.0.3 sanitizes it), so resolve from this file, which lives one
+    // level under the plugin root (v0200/).
+    const dir = localPath(Qt.resolvedUrl("../")).replace(/\/$/, "")
+    return dir ? dir + "/" + name : ""
   }
 
   function focusPicker() {
@@ -1514,7 +1527,7 @@ Item {
   }
 
   function openSelector(nextImageDirs, nextImageRows, nextSelectedImage, nextSelectionFile, nextDoneFile, nextShowLabels, nextFilterable) {
-    // Warm Icons chip before first paint (inventory needs manifest.__sourceDir).
+    // Warm the Icons chip before first paint.
     ensureFooterIconsReady()
     if (catalogMode) leaveCatalog(false)
     if (wallhavenMode) leaveWallhaven(false)
