@@ -67,7 +67,7 @@ const repositoryKeyMap = (values) =>
 const displayStatus = ({ installed, stockConflict }) => {
   if (installed) return "Installed"
   if (stockConflict) return "Conflicts with stock theme"
-  return "Install"
+  return "Review source"
 }
 
 const catalogRows = (payload, inventory = {}) => {
@@ -107,6 +107,8 @@ const catalogRows = (payload, inventory = {}) => {
     const description = plainTextValue(entry.description, 500)
     const previewUrl = safePreviewUrl(entry.previewUrl || entry.preview_url)
 
+    const reviewable = !installed && !stockConflict
+
     rowsByRepository[repositoryUrl] = {
       filePath: repositoryUrl,
       fileName: `${installSlug}.webp`,
@@ -122,7 +124,7 @@ const catalogRows = (payload, inventory = {}) => {
       official,
       installed,
       stockConflict,
-      canInstall: !installed && !stockConflict,
+      reviewable,
       status: displayStatus({ installed, stockConflict }),
       searchText: [name, owner, description, installSlug, repositoryUrl, apps.join(" ")]
         .join(" ")
@@ -133,7 +135,7 @@ const catalogRows = (payload, inventory = {}) => {
   return Object.keys(rowsByRepository)
     .map((key) => rowsByRepository[key])
     .sort((left, right) => {
-      if (left.canInstall !== right.canInstall) return left.canInstall ? -1 : 1
+      if (left.reviewable !== right.reviewable) return left.reviewable ? -1 : 1
       if (left.official !== right.official) return left.official ? -1 : 1
       if (left.stars !== right.stars) return right.stars - left.stars
       return left.displayName.localeCompare(right.displayName)
@@ -148,7 +150,7 @@ const listingOptions = [
 
 const availabilityOptions = [
   { value: "all", label: "All" },
-  { value: "installable", label: "Installable" },
+  { value: "reviewable", label: "Reviewable" },
   { value: "installed", label: "Installed" },
   { value: "conflicts", label: "Conflicts" }
 ]
@@ -227,7 +229,7 @@ const itemMatchesCatalogFilters = (item, filters) => {
   if (normalized.listing === "official" && !row.official) return false
   if (normalized.listing === "community" && row.official) return false
 
-  if (normalized.availability === "installable" && !row.canInstall) return false
+  if (normalized.availability === "reviewable" && !row.reviewable) return false
   if (normalized.availability === "installed" && !row.installed) return false
   if (normalized.availability === "conflicts" && !row.stockConflict) return false
 
@@ -282,21 +284,6 @@ const parseCatalogFilters = (raw) => {
   }
 }
 
-const installConfirmationMessage = (entry) => {
-  const row = objectValue(entry)
-  if (!row.canInstall) return ""
-
-  const origin = row.owner ? `@${row.owner}` : "its GitHub repository"
-  const trust = row.official ? " Officially listed by Omarchy." : ""
-  const warnings = arrayValue(row.warnings).slice(0, 3)
-  const warning =
-    warnings.length > 0
-      ? ` Catalog note${warnings.length === 1 ? "" : "s"}: ${warnings.join("; ")}.`
-      : ""
-
-  return `Install ${row.displayName} from ${origin}? It will be cloned and applied immediately.${trust}${warning}`
-}
-
 if (typeof module !== "undefined") {
   module.exports = {
     normalizeRepositoryUrl,
@@ -307,7 +294,6 @@ if (typeof module !== "undefined") {
     safePreviewUrl,
     parsedArray,
     catalogRows,
-    installConfirmationMessage,
     defaultCatalogFilters,
     normalizeCatalogFilters,
     catalogFilterKey,

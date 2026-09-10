@@ -17,15 +17,17 @@ The normalized GitHub repository URL is the primary identity. Protocol, `.git`,
 trailing-slash, query, fragment, and URL-case variants collapse into one entry.
 Different repositories with the same display name remain separate.
 
-Before enabling **Install**, Theme Manager checks the destination slug used by
-Omarchy against stock themes, user themes, and the Git origins of installed
-themes. Remote text is sanitized and bounded. Preview URLs are accepted only
-from `raw.githubusercontent.com` or GitHub's `/user-attachments/assets/` path,
-and the repository URL is passed as a separate argument to Omarchy's installer.
+Theme Manager checks the destination slug used by Omarchy against stock themes,
+user themes, and the Git origins of installed themes so availability remains
+useful discovery metadata. Remote text is sanitized and bounded. Preview URLs
+are accepted only from `raw.githubusercontent.com` or GitHub's
+`/user-attachments/assets/` path.
 
-Catalog records and badges are not security endorsements. Installation always
-requires confirmation, states that Omarchy applies the theme immediately, and
-shows catalog notes when present.
+Catalog records and badges are not security endorsements. Because neither
+remote source publishes immutable reviewed commits, catalog entries never flow
+into `omarchy theme install` or another execution path. **Open repository** only
+opens the normalized GitHub URL for source review; installation remains a
+separate, deliberate user action outside Theme Manager.
 
 ## Cache
 

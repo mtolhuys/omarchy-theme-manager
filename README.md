@@ -27,7 +27,7 @@
 - **Themes ⇄ Wallpapers cross-nav** — jump with footer chips or `Ctrl+T` /
   `Ctrl+W`; **Browse** stays on the right next to Icons.
 - **Theme catalog** — filters (listing / availability / sort / min stars),
-  fuzzy search, install/uninstall with confirmations, official Omarchy badge.
+  fuzzy search, source-review links, and the official Omarchy badge.
 - **Wallpaper picker** — favorites (`Ctrl+D`), live palette while browsing,
   Actions hamburger (Save / All / Reset / Remove), Wallhaven via Aether.
 - **Wallhaven** — SFW search, filters, load-more; downloads install into the
@@ -109,8 +109,11 @@ Shell plugins run unsandboxed with the current user's permissions. Review
 sources before enabling.
 
 Themes: only normalized GitHub repository URLs; bounded catalog fields;
-previews from strict GitHub allowlists. A catalog badge is discovery metadata,
-not a security endorsement.
+previews from strict GitHub allowlists. The mutable remote catalog is discovery
+metadata only: Theme Manager never passes its entries to an installer. **Open
+repository** takes you to GitHub so you can review the source and deliberately
+choose whether to install it yourself. A catalog badge is not a security
+endorsement.
 
 Wallpapers: only Aether and Omarchy picker helpers; capped streaming output;
 validated ids; previews from Aether's thumbnail cache; downloads from Aether's

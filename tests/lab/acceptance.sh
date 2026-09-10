@@ -31,15 +31,21 @@ omarchy_host_test() {
     aether --help | grep -q -- '--wallhaven-download'" || return 1
 
   ssh_session "omarchy-plugin-add $install_source_q --enable --yes" || return 1
-  wait_for_guest_state "Theme Manager 0.5.12 is installed and loaded" 25 ssh_session \
+  wait_for_guest_state "Theme Manager 0.5.13 is installed" 25 ssh_session \
     "omarchy-plugin-list --json | jq -e \
       'any(.[]; .id == \"io.github.mtolhuys.theme-manager\" and .enabled == true)' && \
-     jq -e '.version == \"0.5.12\" and \
+     jq -e '.version == \"0.5.13\" and \
        .entryPoints.overlay == \"v0200/ImagePicker.qml\" and \
        .omarchy.clonedFrom == \"omarchy.image-picker\"' \
-       \"\$HOME/.config/omarchy/plugins/io.github.mtolhuys.theme-manager/manifest.json\" && \
-     [[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.5.12\" ]] && \
-     test -x \"\$HOME/.config/omarchy/hooks/theme-set.d/50-theme-manager-memory\"" || return 1
+       \"\$HOME/.config/omarchy/plugins/io.github.mtolhuys.theme-manager/manifest.json\"" || return 1
+  if ! wait_for_guest_state "Theme Manager 0.5.13 is loaded" 25 ssh_session \
+    "[[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.5.13\" ]]"; then
+    ssh_session "journalctl --user --since '-2 minutes' --no-pager | tail -n 500" \
+      >"$RUN_DIR/theme-manager-shell-load-failure.log" 2>&1 || true
+    return 1
+  fi
+  wait_for_guest_state "the Theme Manager hook is installed" 15 ssh_session \
+    "test -x \"\$HOME/.config/omarchy/hooks/theme-set.d/50-theme-manager-memory\"" || return 1
 
   press meta_l-shift-ctrl-spc || return 1
   wait_for_guest_state "the native theme shortcut opens Theme Manager's theme mode" 20 ssh_session \
@@ -55,6 +61,19 @@ omarchy_host_test() {
     "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
        jq -e '.opened == true and .mode == \"catalog\" and .images > 0'" || return 1
   capture_console "success-theme-manager-02-theme-catalog" || return 1
+
+  ssh_session "find \"\$HOME/.config/omarchy/themes\" -mindepth 1 -maxdepth 1 -type d | \
+    wc -l > /tmp/theme-manager-theme-count-before-review" || return 1
+  press ret || return 1
+  wait_for_guest_state "Return opens the catalog repository for review without installing it" 30 ssh_session \
+    "hyprctl -j clients | jq -e \
+       'any(.[]; ((.class // \"\") | ascii_downcase | test(\"chromium|chrome|firefox|brave\")))' && \
+     [[ \$(find \"\$HOME/.config/omarchy/themes\" -mindepth 1 -maxdepth 1 -type d | wc -l) == \
+        \$(cat /tmp/theme-manager-theme-count-before-review) ]]" || return 1
+  press alt-f4 || return 1
+  wait_for_guest_state "closing the review browser returns to the catalog" 20 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e '.opened == true and .mode == \"catalog\"'" || return 1
 
   press esc || return 1
   wait_for_guest_state "Escape returns from the catalog to installed themes" 20 ssh_session \
@@ -178,7 +197,7 @@ omarchy_host_test() {
   wait_for_guest_state "Theme Manager can be enabled again with the same runtime" 20 ssh_session \
     "omarchy-plugin-list --json | jq -e \
       'any(.[]; .id == \"io.github.mtolhuys.theme-manager\" and .enabled == true)' && \
-     [[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.5.12\" ]]" || return 1
+     [[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.5.13\" ]]" || return 1
 
   ssh_session "omarchy-plugin-remove io.github.mtolhuys.theme-manager --yes" || return 1
   wait_for_guest_state "removal restores the native picker and keeps the wallpaper" 20 ssh_session \

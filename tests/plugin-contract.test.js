@@ -9,7 +9,7 @@ const read = (path) => readFile(join(process.cwd(), path), "utf8")
 test("keeps the published Theme Manager identity as the sole picker clone", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   assert.equal(manifest.id, "io.github.mtolhuys.theme-manager")
-  assert.equal(manifest.version, "0.5.12")
+  assert.equal(manifest.version, "0.5.13")
   assert.deepEqual(manifest.kinds, ["overlay"])
   assert.match(manifest.entryPoints.overlay, /^v[0-9]{4}\/ImagePicker\.qml$/)
   assert.equal(manifest.omarchy.clonedFrom, "omarchy.image-picker")
@@ -94,8 +94,23 @@ test("routes theme and wallpaper features by request context", async () => {
   assert.match(picker, /root\.openCatalogFilters\(\)/)
   assert.match(picker, /ThemeCatalogFilterBar/)
   assert.match(picker, /root\.openWallhaven\(\)/)
-  assert.match(picker, /if \(catalogMode\).*themeCatalog\.requestInstall/s)
+  assert.match(picker, /if \(catalogMode\).*themeCatalog\.openSelectedRepository/s)
   assert.match(picker, /if \(wallhavenMode\).*wallhaven\.download/s)
+
+  const catalogController = await read(join(runtimeDir, "ThemeCatalogController.qml"))
+  const catalogModel = await read(join(runtimeDir, "ThemeCatalogModel.js"))
+  const catalogRuntime = [picker, catalogController, catalogModel].join("\n")
+  assert.match(catalogController, /openRepositoryRequested\(repositoryUrl\)/)
+  assert.match(catalogController, /ThemeCatalogModel\.normalizeRepositoryUrl/)
+  assert.match(picker, /Util\.execArgv\(\["xdg-open", url\]\)/)
+  assert.doesNotMatch(
+    catalogRuntime,
+    /omarchy-theme-install|["']omarchy["']\s*,\s*["']theme["']\s*,\s*["']install["']/
+  )
+  assert.doesNotMatch(
+    catalogRuntime,
+    /installProc|requestInstall|confirmInstall|canInstall|onThemeInstalled/
+  )
 
   assert.match(picker, /ThemeMemoryModel/)
   assert.match(picker, /root\.openIcons\(\)/)

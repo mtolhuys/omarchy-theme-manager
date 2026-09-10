@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.13 - 2026-09-11
+
+- Make the remote theme catalog fail closed: catalog entries are discovery
+  metadata only and can no longer flow into `omarchy theme install`. The former
+  install action now opens the normalized GitHub repository for source review,
+  keeping mutable catalog data outside the theme execution and apply path.
+
 ## 0.5.12 - 2026-09-10
 
 - Omarchy 4.0.3 compatibility: resolve all bundled helper scripts from the

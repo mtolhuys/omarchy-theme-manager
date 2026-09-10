@@ -18,7 +18,7 @@ import "WallpaperCommandModel.js" as WallpaperCommandModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.5.12"
+  readonly property string buildIdentity: "0.5.13"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var manifest: null
@@ -1449,7 +1449,7 @@ Item {
 
   function applySelected() {
     if (catalogMode) {
-      themeCatalog.requestInstall()
+      themeCatalog.openSelectedRepository()
       return
     }
 
@@ -2019,7 +2019,7 @@ Item {
     installedRepositories: themeManager.installedRepositories
     selectedEntry: root.catalogMode ? root.currentItem() : null
     onCatalogLoaded: function(rows) { root.enterCatalog(rows) }
-    onThemeInstalled: root.cancel()
+    onOpenRepositoryRequested: function(url) { Util.execArgv(["xdg-open", url]) }
     onFocusRequested: Qt.callLater(root.focusPicker)
   }
 
@@ -2084,9 +2084,7 @@ Item {
           return
         }
 
-        if (themeCatalog.confirmationOpen) {
-          if (installConfirm.handleKey(event)) event.accepted = true
-        } else if (themeManager.confirmationOpen) {
+        if (themeManager.confirmationOpen) {
           if (uninstallConfirm.handleKey(event)) event.accepted = true
         } else if (event.key === Qt.Key_Delete
                    && !root.catalogMode
@@ -2563,7 +2561,7 @@ Item {
           themeBrowseButton.implicitHeight,
           catalogBackButton.implicitHeight,
           uninstallButton.implicitHeight,
-          catalogInstallButton.implicitHeight,
+          catalogReviewButton.implicitHeight,
           wallpapersCrossNavButton.implicitHeight,
           themesCrossNavButton.implicitHeight
         )
@@ -2604,8 +2602,8 @@ Item {
             width = Math.max(width, defaultsControls.implicitWidth)
           if (loadMoreButton.visible)
             width = Math.max(width, loadMoreButton.implicitWidth)
-          if (catalogInstallButton.visible)
-            width = Math.max(width, catalogInstallButton.implicitWidth)
+          if (catalogReviewButton.visible)
+            width = Math.max(width, catalogReviewButton.implicitWidth)
           return width
         }
 
@@ -3105,27 +3103,23 @@ Item {
         }
 
         Button {
-          id: catalogInstallButton
+          id: catalogReviewButton
           visible: root.catalogMode
-          enabled: themeCatalog.canInstallSelected
+          enabled: themeCatalog.canOpenSelected
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
-          text: themeCatalog.selectedStatus
+          text: "Open repository"
           tooltipText: {
             const item = themeCatalog.selectedEntry
             if (!item) return ""
-            if (item.installed) return "This repository is already installed"
-            if (item.stockConflict) return "This repository would overwrite a stock theme slug"
-            if (item.warnings && item.warnings.length > 0)
-              return "Review " + item.warnings.length + " catalog notes before installing"
-            return "Clone and immediately apply this theme (Enter)"
+            return "Review this theme's source on GitHub before choosing whether to install it (Enter)"
           }
-          foreground: themeCatalog.canInstallSelected ? Color.accent : Color.muted
+          foreground: themeCatalog.canOpenSelected ? Color.accent : Color.muted
           accent: Color.accent
           bordered: true
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
-          onClicked: themeCatalog.requestInstall()
+          onClicked: themeCatalog.openSelectedRepository()
         }
       }
 
@@ -3266,20 +3260,6 @@ Item {
         onConfirmed: themeManager.confirmUninstall()
       }
 
-      ConfirmDialog {
-        id: installConfirm
-        anchors.fill: parent
-        opened: themeCatalog.confirmationOpen
-        z: 1000
-        message: themeCatalog.confirmationMessage
-        confirmText: "Install"
-        background: root.dimColor
-        foreground: root.foreground
-        scrim: root.scrim
-        selectedText: Color.accent
-        onCanceled: themeCatalog.cancelInstall()
-        onConfirmed: themeCatalog.confirmInstall()
-      }
     }
 
     Item {

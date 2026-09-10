@@ -14,37 +14,21 @@ Item {
   property var rows: []
   property var selectedEntry: null
   property bool loading: false
-  property bool busy: false
-  property bool confirmationOpen: false
-  property var pendingEntry: null
   property string catalogStderr: ""
-  property string installStderr: ""
   property string errorMessage: ""
 
-  readonly property bool canInstallSelected: !!selectedEntry
-    && selectedEntry.canInstall === true
-    && !busy
-  readonly property string selectedStatus: busy
-    ? "Installing…"
-    : (selectedEntry ? String(selectedEntry.status || "Install") : "Install")
-  readonly property string confirmationMessage:
-    ThemeCatalogModel.installConfirmationMessage(pendingEntry)
+  readonly property bool canOpenSelected: !!selectedEntry
+    && ThemeCatalogModel.normalizeRepositoryUrl(selectedEntry.repositoryUrl) !== ""
 
   signal catalogLoaded(var rows)
-  signal themeInstalled(string name)
+  signal openRepositoryRequested(string url)
   signal focusRequested()
 
-  onPickerOpenChanged: if (!pickerOpen) resetTransientState()
-  onSelectedEntryChanged: if (!busy) errorMessage = ""
+  onPickerOpenChanged: if (!pickerOpen) errorMessage = ""
+  onSelectedEntryChanged: errorMessage = ""
   onInstalledThemesChanged: rebuildRows(false)
   onStockThemesChanged: rebuildRows(false)
   onInstalledRepositoriesChanged: rebuildRows(false)
-
-  function resetTransientState() {
-    confirmationOpen = false
-    pendingEntry = null
-    errorMessage = ""
-  }
 
   function inventory() {
     return {
@@ -61,7 +45,7 @@ Item {
   }
 
   function load() {
-    if (loading || busy || !catalogScriptPath) return
+    if (loading || !catalogScriptPath) return
 
     loading = true
     errorMessage = ""
@@ -70,34 +54,13 @@ Item {
     catalogProc.running = true
   }
 
-  function requestInstall() {
-    if (!canInstallSelected) return
-    pendingEntry = selectedEntry
-    confirmationOpen = true
-  }
-
-  function cancelInstall() {
-    confirmationOpen = false
-    pendingEntry = null
+  function openSelectedRepository() {
+    const repositoryUrl = selectedEntry
+      ? ThemeCatalogModel.normalizeRepositoryUrl(selectedEntry.repositoryUrl)
+      : ""
+    if (!repositoryUrl) return
+    openRepositoryRequested(repositoryUrl)
     focusRequested()
-  }
-
-  function confirmInstall() {
-    const entry = pendingEntry
-    confirmationOpen = false
-    pendingEntry = null
-
-    if (!entry || entry !== selectedEntry || entry.canInstall !== true || busy) {
-      focusRequested()
-      return
-    }
-
-    busy = true
-    errorMessage = ""
-    installStderr = ""
-    installProc.targetEntry = entry
-    installProc.command = ["omarchy", "theme", "install", entry.repositoryUrl]
-    installProc.running = true
   }
 
   Process {
@@ -111,7 +74,7 @@ Item {
           root.payload = parsed
           root.rebuildRows(true)
           if (root.rows.length === 0)
-            root.errorMessage = "No installable themes were found in the catalog"
+            root.errorMessage = "No themes were found in the catalog"
         } catch (_) {
           root.rows = []
           root.errorMessage = "The theme catalog returned invalid data"
@@ -138,31 +101,4 @@ Item {
     }
   }
 
-  Process {
-    id: installProc
-    property var targetEntry: null
-
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        root.installStderr = String(text || "").trim()
-        if (!installProc.running && root.errorMessage !== "" && root.installStderr !== "")
-          root.errorMessage = root.installStderr
-      }
-    }
-
-    onExited: function(exitCode) {
-      const installedEntry = targetEntry
-      targetEntry = null
-      root.busy = false
-
-      if (exitCode === 0 && installedEntry) {
-        root.themeInstalled(installedEntry.installSlug)
-      } else {
-        root.errorMessage = root.installStderr
-          || "Could not install " + (installedEntry ? installedEntry.displayName : "the theme")
-        root.focusRequested()
-      }
-    }
-  }
 }

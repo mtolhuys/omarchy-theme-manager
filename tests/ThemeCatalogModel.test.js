@@ -85,10 +85,10 @@ test("blocks installed repositories and stock-slug collisions", () => {
 
   const bySlug = Object.fromEntries(rows.map((row) => [row.installSlug, row]))
   assert.equal(bySlug.installed.installed, true)
-  assert.equal(bySlug.installed.canInstall, false)
+  assert.equal(bySlug.installed.reviewable, false)
   assert.equal(bySlug.miasma.stockConflict, true)
-  assert.equal(bySlug.miasma.canInstall, false)
-  assert.equal(bySlug.fresh.canInstall, true)
+  assert.equal(bySlug.miasma.reviewable, false)
+  assert.equal(bySlug.fresh.reviewable, true)
 })
 
 test("sanitizes remote display values and allowlists GitHub preview hosts", () => {
@@ -114,7 +114,7 @@ test("sanitizes remote display values and allowlists GitHub preview hosts", () =
   )
 })
 
-test("surfaces catalog warnings in an explicit installation confirmation", () => {
+test("keeps catalog notes as bounded discovery metadata", () => {
   const [row] = model.catalogRows({
     officialRepositories: ["https://github.com/example/omarchy-safe-theme"],
     themes: [
@@ -127,13 +127,13 @@ test("surfaces catalog warnings in an explicit installation confirmation", () =>
     ]
   })
 
-  const message = model.installConfirmationMessage(row)
-  assert.match(message, /cloned and applied immediately/)
-  assert.match(message, /Officially listed by Omarchy/)
-  assert.match(message, /Catalog note: installs an editor extension/)
+  assert.equal(row.status, "Review source")
+  assert.equal(row.reviewable, true)
+  assert.deepEqual(row.warnings, ["installs an editor extension"])
+  assert.equal("canInstall" in row, false)
 })
 
-test("sorts installable themes ahead of blocked catalog entries", () => {
+test("sorts reviewable themes ahead of blocked catalog entries", () => {
   const rows = model.catalogRows(
     {
       officialRepositories: [
@@ -167,7 +167,7 @@ test("filters and sorts theme catalog rows locally", () => {
       official: true,
       installed: false,
       stockConflict: false,
-      canInstall: true,
+      reviewable: true,
       stars: 12
     },
     {
@@ -175,7 +175,7 @@ test("filters and sorts theme catalog rows locally", () => {
       official: false,
       installed: true,
       stockConflict: false,
-      canInstall: false,
+      reviewable: false,
       stars: 80
     },
     {
@@ -183,7 +183,7 @@ test("filters and sorts theme catalog rows locally", () => {
       official: false,
       installed: false,
       stockConflict: true,
-      canInstall: false,
+      reviewable: false,
       stars: 5
     }
   ]
@@ -194,14 +194,14 @@ test("filters and sorts theme catalog rows locally", () => {
   assert.equal(model.itemMatchesCatalogFilters(rows[2], { availability: "conflicts" }), true)
   assert.equal(model.itemMatchesCatalogFilters(rows[2], { minStars: 10 }), false)
 
-  const officialInstallable = model.applyCatalogFilters(rows, {
+  const officialReviewable = model.applyCatalogFilters(rows, {
     listing: "official",
-    availability: "installable",
+    availability: "reviewable",
     sort: "best",
     minStars: 0
   })
   assert.deepEqual(
-    officialInstallable.map((row) => row.displayName),
+    officialReviewable.map((row) => row.displayName),
     ["Zebra"]
   )
 
@@ -220,11 +220,11 @@ test("filters and sorts theme catalog rows locally", () => {
   assert.equal(
     model.catalogFilterSummary({
       listing: "official",
-      availability: "installable",
+      availability: "reviewable",
       sort: "stars",
       minStars: 10
     }),
-    "Official  ·  Installable  ·  Stars ↓  ·  10+"
+    "Official  ·  Reviewable  ·  Stars ↓  ·  10+"
   )
   assert.equal(model.catalogFiltersActive({}), false)
   assert.equal(model.catalogFiltersActive({ listing: "community" }), true)
