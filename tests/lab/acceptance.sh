@@ -31,15 +31,15 @@ omarchy_host_test() {
     aether --help | grep -q -- '--wallhaven-download'" || return 1
 
   ssh_session "omarchy-plugin-add $install_source_q --enable --yes" || return 1
-  wait_for_guest_state "Theme Manager 0.5.13 is installed" 25 ssh_session \
+  wait_for_guest_state "Theme Manager 0.5.14 is installed" 25 ssh_session \
     "omarchy-plugin-list --json | jq -e \
       'any(.[]; .id == \"io.github.mtolhuys.theme-manager\" and .enabled == true)' && \
-     jq -e '.version == \"0.5.13\" and \
+     jq -e '.version == \"0.5.14\" and \
        .entryPoints.overlay == \"v0200/ImagePicker.qml\" and \
        .omarchy.clonedFrom == \"omarchy.image-picker\"' \
        \"\$HOME/.config/omarchy/plugins/io.github.mtolhuys.theme-manager/manifest.json\"" || return 1
-  if ! wait_for_guest_state "Theme Manager 0.5.13 is loaded" 25 ssh_session \
-    "[[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.5.13\" ]]"; then
+  if ! wait_for_guest_state "Theme Manager 0.5.14 is loaded" 25 ssh_session \
+    "[[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.5.14\" ]]"; then
     ssh_session "journalctl --user --since '-2 minutes' --no-pager | tail -n 500" \
       >"$RUN_DIR/theme-manager-shell-load-failure.log" 2>&1 || true
     return 1
@@ -187,6 +187,22 @@ omarchy_host_test() {
   ssh_session "test -z \"\$(hyprctl configerrors)\"" || return 1
   capture_console "success-theme-manager-08-wallpaper-applied" || return 1
 
+  wait_for_guest_state "a planted wallpaper symlink cannot redirect publication" 20 ssh_session \
+    "theme=\$(cat \"\$HOME/.local/state/omarchy/current/theme.name\") && \
+     theme_dir=\"\$HOME/.config/omarchy/backgrounds/\$theme\" && \
+     source=\"\$HOME/.cache/aether/wallpapers/symlink-guard.png\" && \
+     victim=\"\$HOME/theme-manager-symlink-victim\" && \
+     mkdir -p \"\$(dirname \"\$source\")\" && \
+     cp -- \"\$(readlink -f \"\$HOME/.local/state/omarchy/current/background\")\" \"\$source\" && \
+     printf 'untouched' >\"\$victim\" && \
+     ln -s -- \"\$victim\" \"\$theme_dir/symlink-guard.png\" && \
+     installed=\$(\"\$HOME/.config/omarchy/plugins/io.github.mtolhuys.theme-manager/install-wallpaper.sh\" \
+       \"\$theme\" \"\$source\") && \
+     [[ \$installed == \"\$theme_dir/symlink-guard-2.png\" ]] && \
+     [[ \$(cat \"\$victim\") == untouched ]] && \
+     [[ -L \$theme_dir/symlink-guard.png ]] && \
+     [[ -f \$installed && ! -L \$installed ]]" || return 1
+
   ssh_session "omarchy-plugin-disable io.github.mtolhuys.theme-manager" || return 1
   wait_for_guest_state "disabling Theme Manager restores the native picker" 20 ssh_session \
     "omarchy-plugin-list --json | jq -e \
@@ -197,7 +213,7 @@ omarchy_host_test() {
   wait_for_guest_state "Theme Manager can be enabled again with the same runtime" 20 ssh_session \
     "omarchy-plugin-list --json | jq -e \
       'any(.[]; .id == \"io.github.mtolhuys.theme-manager\" and .enabled == true)' && \
-     [[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.5.13\" ]]" || return 1
+     [[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.5.14\" ]]" || return 1
 
   ssh_session "omarchy-plugin-remove io.github.mtolhuys.theme-manager --yes" || return 1
   wait_for_guest_state "removal restores the native picker and keeps the wallpaper" 20 ssh_session \

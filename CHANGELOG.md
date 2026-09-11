@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.14 - 2026-09-11
+
+- Harden external wallpaper installation against destination symlink attacks.
+  Every destination directory is opened without following symlinks and checked
+  for current-user ownership and safe write permissions; wallpaper bytes are
+  staged in an exclusive file and atomically published without replacing an
+  existing name.
+
 ## 0.5.13 - 2026-09-11
 
 - Make the remote theme catalog fail closed: catalog entries are discovery
