@@ -53,14 +53,14 @@ omarchy_host_test() {
 
   ssh_session "omarchy-plugin-add $install_source_q --enable --yes" \
     >"$RUN_DIR/theme-manager-marketing-install.log" || return 1
-  wait_for_guest_state "Theme Manager 0.5.14 is installed and loaded" 25 ssh_session \
+  wait_for_guest_state "Theme Manager 0.5.15 is installed and loaded" 25 ssh_session \
     "omarchy-plugin-list --json | jq -e \
       'any(.[]; .id == \"io.github.mtolhuys.theme-manager\" and .enabled == true)' && \
-     jq -e '.version == \"0.5.14\" and \
+     jq -e '.version == \"0.5.15\" and \
        .entryPoints.overlay == \"v0200/ImagePicker.qml\" and \
        .omarchy.clonedFrom == \"omarchy.image-picker\"' \
        \"\$HOME/.config/omarchy/plugins/io.github.mtolhuys.theme-manager/manifest.json\" && \
-     [[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.5.14\" ]]" || return 1
+     [[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.5.15\" ]]" || return 1
 
   viewport_width="$(ssh_session "hyprctl -j monitors | jq -r '.[0].width'")" || return 1
   viewport_height="$(ssh_session "hyprctl -j monitors | jq -r '.[0].height'")" || return 1

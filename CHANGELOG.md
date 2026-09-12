@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.15 - 2026-09-12
+
+- Harden remote catalog caching against directory and cache-file symlink
+  attacks. Cache directories now use owner-checked no-follow descriptors;
+  downloads are staged exclusively and atomically published relative to the
+  held cache descriptor.
+
 ## 0.5.14 - 2026-09-11
 
 - Harden external wallpaper installation against destination symlink attacks.

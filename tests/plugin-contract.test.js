@@ -9,7 +9,7 @@ const read = (path) => readFile(join(process.cwd(), path), "utf8")
 test("keeps the published Theme Manager identity as the sole picker clone", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   assert.equal(manifest.id, "io.github.mtolhuys.theme-manager")
-  assert.equal(manifest.version, "0.5.14")
+  assert.equal(manifest.version, "0.5.15")
   assert.deepEqual(manifest.kinds, ["overlay"])
   assert.match(manifest.entryPoints.overlay, /^v[0-9]{4}\/ImagePicker\.qml$/)
   assert.equal(manifest.omarchy.clonedFrom, "omarchy.image-picker")
@@ -117,6 +117,16 @@ test("routes theme and wallpaper features by request context", async () => {
   assert.match(picker, /function openIcons\(\)/)
   assert.match(picker, /theme-manager-memory\.json/)
   assert.doesNotMatch(picker, /io\.github\.mtolhuys\.wallpaper-manager/)
+})
+
+test("publishes catalog cache entries through a checked directory descriptor", async () => {
+  const cache = await read("catalog-cache.py")
+  assert.match(cache, /os\.O_DIRECTORY \| os\.O_NOFOLLOW/)
+  assert.match(cache, /info\.st_uid != os\.getuid\(\)/)
+  assert.match(cache, /os\.O_EXCL \| os\.O_NOFOLLOW/)
+  assert.match(cache, /os\.replace\(/)
+  assert.match(cache, /src_dir_fd=cache_fd/)
+  assert.match(cache, /dst_dir_fd=cache_fd/)
 })
 
 test("delegates SFW Wallhaven traffic exclusively to bounded Aether processes", async () => {
