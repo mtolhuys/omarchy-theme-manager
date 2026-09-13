@@ -6,6 +6,7 @@ Item {
   id: root
 
   property string catalogScriptPath: ""
+  property string installScriptPath: ""
   property bool pickerOpen: false
   property var installedThemes: ({})
   property var stockThemes: ({})
@@ -14,21 +15,37 @@ Item {
   property var rows: []
   property var selectedEntry: null
   property bool loading: false
+  property bool busy: false
+  property bool confirmationOpen: false
+  property var pendingEntry: null
   property string catalogStderr: ""
+  property string installStderr: ""
   property string errorMessage: ""
 
-  readonly property bool canOpenSelected: !!selectedEntry
-    && ThemeCatalogModel.normalizeRepositoryUrl(selectedEntry.repositoryUrl) !== ""
+  readonly property bool canInstallSelected: !!selectedEntry
+    && selectedEntry.canInstall === true
+    && !busy
+  readonly property string selectedStatus: busy
+    ? "Installing…"
+    : (selectedEntry ? String(selectedEntry.status || "Install") : "Install")
+  readonly property string confirmationMessage:
+    ThemeCatalogModel.installConfirmationMessage(pendingEntry)
 
   signal catalogLoaded(var rows)
-  signal openRepositoryRequested(string url)
+  signal themeInstalled(string name)
   signal focusRequested()
 
-  onPickerOpenChanged: if (!pickerOpen) errorMessage = ""
-  onSelectedEntryChanged: errorMessage = ""
+  onPickerOpenChanged: if (!pickerOpen) resetTransientState()
+  onSelectedEntryChanged: if (!busy) errorMessage = ""
   onInstalledThemesChanged: rebuildRows(false)
   onStockThemesChanged: rebuildRows(false)
   onInstalledRepositoriesChanged: rebuildRows(false)
+
+  function resetTransientState() {
+    confirmationOpen = false
+    pendingEntry = null
+    errorMessage = ""
+  }
 
   function inventory() {
     return {
@@ -45,7 +62,7 @@ Item {
   }
 
   function load() {
-    if (loading || !catalogScriptPath) return
+    if (loading || busy || !catalogScriptPath) return
 
     loading = true
     errorMessage = ""
@@ -54,13 +71,34 @@ Item {
     catalogProc.running = true
   }
 
-  function openSelectedRepository() {
-    const repositoryUrl = selectedEntry
-      ? ThemeCatalogModel.normalizeRepositoryUrl(selectedEntry.repositoryUrl)
-      : ""
-    if (!repositoryUrl) return
-    openRepositoryRequested(repositoryUrl)
+  function requestInstall() {
+    if (!canInstallSelected) return
+    pendingEntry = selectedEntry
+    confirmationOpen = true
+  }
+
+  function cancelInstall() {
+    confirmationOpen = false
+    pendingEntry = null
     focusRequested()
+  }
+
+  function confirmInstall() {
+    const entry = pendingEntry
+    confirmationOpen = false
+    pendingEntry = null
+
+    if (!entry || entry !== selectedEntry || entry.canInstall !== true || busy || !installScriptPath) {
+      focusRequested()
+      return
+    }
+
+    busy = true
+    errorMessage = ""
+    installStderr = ""
+    installProc.targetEntry = entry
+    installProc.command = [installScriptPath, entry.repositoryUrl]
+    installProc.running = true
   }
 
   Process {
@@ -96,6 +134,34 @@ Item {
       if (exitCode !== 0) {
         root.rows = []
         root.errorMessage = root.catalogStderr || "Could not load the theme catalog"
+        root.focusRequested()
+      }
+    }
+  }
+
+  Process {
+    id: installProc
+    property var targetEntry: null
+
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        root.installStderr = String(text || "").trim()
+        if (!installProc.running && root.errorMessage !== "" && root.installStderr !== "")
+          root.errorMessage = root.installStderr
+      }
+    }
+
+    onExited: function(exitCode) {
+      const installedEntry = targetEntry
+      targetEntry = null
+      root.busy = false
+
+      if (exitCode === 0 && installedEntry) {
+        root.themeInstalled(installedEntry.installSlug)
+      } else {
+        root.errorMessage = root.installStderr
+          || "Could not install " + (installedEntry ? installedEntry.displayName : "the theme")
         root.focusRequested()
       }
     }

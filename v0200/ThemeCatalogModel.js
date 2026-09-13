@@ -67,7 +67,13 @@ const repositoryKeyMap = (values) =>
 const displayStatus = ({ installed, stockConflict }) => {
   if (installed) return "Installed"
   if (stockConflict) return "Conflicts with stock theme"
-  return "Review source"
+  return "Install"
+}
+
+const installConfirmationMessage = (entry) => {
+  const row = objectValue(entry)
+  const name = plainTextValue(row.displayName || row.installSlug || "this theme", 120)
+  return `Install “${name}” from a sanitized, exact repository snapshot? Only its palette and bounded wallpaper images are imported; scripts and application configs are ignored. Omarchy applies the theme immediately.`
 }
 
 const catalogRows = (payload, inventory = {}) => {
@@ -107,7 +113,7 @@ const catalogRows = (payload, inventory = {}) => {
     const description = plainTextValue(entry.description, 500)
     const previewUrl = safePreviewUrl(entry.previewUrl || entry.preview_url)
 
-    const reviewable = !installed && !stockConflict
+    const canInstall = !installed && !stockConflict
 
     rowsByRepository[repositoryUrl] = {
       filePath: repositoryUrl,
@@ -124,7 +130,7 @@ const catalogRows = (payload, inventory = {}) => {
       official,
       installed,
       stockConflict,
-      reviewable,
+      canInstall,
       status: displayStatus({ installed, stockConflict }),
       searchText: [name, owner, description, installSlug, repositoryUrl, apps.join(" ")]
         .join(" ")
@@ -135,7 +141,7 @@ const catalogRows = (payload, inventory = {}) => {
   return Object.keys(rowsByRepository)
     .map((key) => rowsByRepository[key])
     .sort((left, right) => {
-      if (left.reviewable !== right.reviewable) return left.reviewable ? -1 : 1
+      if (left.canInstall !== right.canInstall) return left.canInstall ? -1 : 1
       if (left.official !== right.official) return left.official ? -1 : 1
       if (left.stars !== right.stars) return right.stars - left.stars
       return left.displayName.localeCompare(right.displayName)
@@ -150,7 +156,7 @@ const listingOptions = [
 
 const availabilityOptions = [
   { value: "all", label: "All" },
-  { value: "reviewable", label: "Reviewable" },
+  { value: "installable", label: "Installable" },
   { value: "installed", label: "Installed" },
   { value: "conflicts", label: "Conflicts" }
 ]
@@ -229,7 +235,7 @@ const itemMatchesCatalogFilters = (item, filters) => {
   if (normalized.listing === "official" && !row.official) return false
   if (normalized.listing === "community" && row.official) return false
 
-  if (normalized.availability === "reviewable" && !row.reviewable) return false
+  if (normalized.availability === "installable" && !row.canInstall) return false
   if (normalized.availability === "installed" && !row.installed) return false
   if (normalized.availability === "conflicts" && !row.stockConflict) return false
 
@@ -293,6 +299,7 @@ if (typeof module !== "undefined") {
     plainTextValue,
     safePreviewUrl,
     parsedArray,
+    installConfirmationMessage,
     catalogRows,
     defaultCatalogFilters,
     normalizeCatalogFilters,

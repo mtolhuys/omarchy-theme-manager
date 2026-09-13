@@ -18,7 +18,7 @@ import "WallpaperCommandModel.js" as WallpaperCommandModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.5.15"
+  readonly property string buildIdentity: "0.5.16"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var manifest: null
@@ -247,6 +247,7 @@ Item {
       images: imageArray.length,
       query: wallhavenMode ? filterText : "",
       filtersOpen: filterSheet.opened || catalogFilterSheet.opened,
+      catalogInstallConfirmationOpen: themeCatalog.confirmationOpen,
       favoriteCount: favoriteIds.length,
       currentFavorite: currentFavorite,
       favoritesOnly: favoritesOnly,
@@ -1449,7 +1450,7 @@ Item {
 
   function applySelected() {
     if (catalogMode) {
-      themeCatalog.openSelectedRepository()
+      themeCatalog.requestInstall()
       return
     }
 
@@ -2013,13 +2014,14 @@ Item {
   ThemeCatalogController {
     id: themeCatalog
     catalogScriptPath: root.pluginScriptPath("catalog.sh")
+    installScriptPath: root.pluginScriptPath("install-theme.py")
     pickerOpen: root.opened
     installedThemes: themeManager.installedThemes
     stockThemes: themeManager.stockThemes
     installedRepositories: themeManager.installedRepositories
     selectedEntry: root.catalogMode ? root.currentItem() : null
     onCatalogLoaded: function(rows) { root.enterCatalog(rows) }
-    onOpenRepositoryRequested: function(url) { Util.execArgv(["xdg-open", url]) }
+    onThemeInstalled: root.cancel()
     onFocusRequested: Qt.callLater(root.focusPicker)
   }
 
@@ -2084,7 +2086,9 @@ Item {
           return
         }
 
-        if (themeManager.confirmationOpen) {
+        if (themeCatalog.confirmationOpen) {
+          if (catalogInstallConfirm.handleKey(event)) event.accepted = true
+        } else if (themeManager.confirmationOpen) {
           if (uninstallConfirm.handleKey(event)) event.accepted = true
         } else if (event.key === Qt.Key_Delete
                    && !root.catalogMode
@@ -3105,21 +3109,23 @@ Item {
         Button {
           id: catalogReviewButton
           visible: root.catalogMode
-          enabled: themeCatalog.canOpenSelected
+          enabled: themeCatalog.canInstallSelected
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
-          text: "Open repository"
+          text: themeCatalog.selectedStatus
           tooltipText: {
             const item = themeCatalog.selectedEntry
             if (!item) return ""
-            return "Review this theme's source on GitHub before choosing whether to install it (Enter)"
+            if (item.installed) return "This theme is already installed"
+            if (item.stockConflict) return "A built-in theme already uses this name"
+            return "Install a sanitized exact snapshot (Enter)"
           }
-          foreground: themeCatalog.canOpenSelected ? Color.accent : Color.muted
+          foreground: themeCatalog.canInstallSelected ? Color.accent : Color.muted
           accent: Color.accent
           bordered: true
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
-          onClicked: themeCatalog.openSelectedRepository()
+          onClicked: themeCatalog.requestInstall()
         }
       }
 
@@ -3243,6 +3249,21 @@ Item {
           elide: Text.ElideRight
           textFormat: Text.PlainText
         }
+      }
+
+      ConfirmDialog {
+        id: catalogInstallConfirm
+        anchors.fill: parent
+        opened: themeCatalog.confirmationOpen
+        z: 1000
+        message: themeCatalog.confirmationMessage
+        confirmText: "Install"
+        background: root.dimColor
+        foreground: root.foreground
+        scrim: root.scrim
+        selectedText: Color.accent
+        onCanceled: themeCatalog.cancelInstall()
+        onConfirmed: themeCatalog.confirmInstall()
       }
 
       ConfirmDialog {

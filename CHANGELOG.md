@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.16 - 2026-09-13
+
+- Restore confirmed one-click theme installation through a fail-closed,
+  data-only boundary. Remote repositories are fetched as bare exact snapshots
+  and never checked out; only a strictly parsed palette and bounded verified
+  image formats are copied into a new local repository for Omarchy to install.
+  Scripts, symlinks, submodules, configs, nested content, and unknown files are
+  excluded, while the exact source commit is retained as provenance.
+
 ## 0.5.15 - 2026-09-12
 
 - Harden remote catalog caching against directory and cache-file symlink

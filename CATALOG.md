@@ -23,11 +23,20 @@ useful discovery metadata. Remote text is sanitized and bounded. Preview URLs
 are accepted only from `raw.githubusercontent.com` or GitHub's
 `/user-attachments/assets/` path.
 
-Catalog records and badges are not security endorsements. Because neither
-remote source publishes immutable reviewed commits, catalog entries never flow
-into `omarchy theme install` or another execution path. **Open repository** only
-opens the normalized GitHub URL for source review; installation remains a
-separate, deliberate user action outside Theme Manager.
+Catalog records and badges are not security endorsements. Theme Manager never
+passes a catalog repository directly to `omarchy theme install`. On confirmed
+installation it obtains a bare Git snapshot, resolves that download to a full
+commit ID, and reads only Git blobs at that exact commit. It creates a separate
+local repository containing a strictly parsed `colors.toml`, up to 16 bounded
+wallpaper images, an optional bounded preview image, and source provenance.
+
+The source repository is never checked out. Symlinks, submodules, nested
+background trees, scripts, hooks, terminal/editor/application configs, and all
+unknown content are excluded. Git system and global configuration are disabled
+for the fetch, prompts are disabled, file sizes and aggregate image size are
+bounded, and each accepted image must match a supported file signature. Omarchy
+installs and applies only the newly constructed data-only repository. A missing
+or malformed palette fails closed.
 
 ## Cache
 
