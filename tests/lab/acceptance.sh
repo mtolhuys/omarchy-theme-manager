@@ -31,15 +31,15 @@ omarchy_host_test() {
     aether --help | grep -q -- '--wallhaven-download'" || return 1
 
   ssh_session "omarchy-plugin-add $install_source_q --enable --yes" || return 1
-  wait_for_guest_state "Theme Manager 0.5.16 is installed" 25 ssh_session \
+  wait_for_guest_state "Theme Manager 0.5.17 is installed" 25 ssh_session \
     "omarchy-plugin-list --json | jq -e \
       'any(.[]; .id == \"io.github.mtolhuys.theme-manager\" and .enabled == true)' && \
-     jq -e '.version == \"0.5.16\" and \
+     jq -e '.version == \"0.5.17\" and \
        .entryPoints.overlay == \"v0200/ImagePicker.qml\" and \
        .omarchy.clonedFrom == \"omarchy.image-picker\"' \
        \"\$HOME/.config/omarchy/plugins/io.github.mtolhuys.theme-manager/manifest.json\"" || return 1
-  if ! wait_for_guest_state "Theme Manager 0.5.16 is loaded" 25 ssh_session \
-    "[[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.5.16\" ]]"; then
+  if ! wait_for_guest_state "Theme Manager 0.5.17 is loaded" 25 ssh_session \
+    "[[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.5.17\" ]]"; then
     ssh_session "journalctl --user --since '-2 minutes' --no-pager | tail -n 500" \
       >"$RUN_DIR/theme-manager-shell-load-failure.log" 2>&1 || true
     return 1
@@ -224,7 +224,7 @@ omarchy_host_test() {
   wait_for_guest_state "Theme Manager can be enabled again with the same runtime" 20 ssh_session \
     "omarchy-plugin-list --json | jq -e \
       'any(.[]; .id == \"io.github.mtolhuys.theme-manager\" and .enabled == true)' && \
-     [[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.5.16\" ]]" || return 1
+     [[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.5.17\" ]]" || return 1
 
   ssh_session "omarchy-plugin-remove io.github.mtolhuys.theme-manager --yes" || return 1
   wait_for_guest_state "removal restores the native picker and keeps the wallpaper" 20 ssh_session \

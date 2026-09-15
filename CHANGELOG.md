@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.17 - 2026-09-15
+
+- Address marketplace issue #5344: replace remote partial Git clones and lazy
+  blob fetching with bounded HTTP reads of one exact commit, two nonrecursive
+  trees, and selected data files. Check declared sizes before fetching blobs,
+  enforce per-response and aggregate byte budgets during reads, refuse
+  redirects/compression, and compare downloaded blobs with their tree identities.
+
 ## 0.5.16 - 2026-09-13
 
 - Restore confirmed one-click theme installation through a fail-closed,

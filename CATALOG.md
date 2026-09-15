@@ -25,16 +25,25 @@ are accepted only from `raw.githubusercontent.com` or GitHub's
 
 Catalog records and badges are not security endorsements. Theme Manager never
 passes a catalog repository directly to `omarchy theme install`. On confirmed
-installation it obtains a bare Git snapshot, resolves that download to a full
-commit ID, and reads only Git blobs at that exact commit. It creates a separate
+installation it resolves a full commit ID through GitHub's API and reads only
+the root and background tree metadata and selected raw files at that commit.
+No remote Git clone, pack fetch, or lazy blob download is used. It creates a separate
 local repository containing a strictly parsed `colors.toml`, up to 16 bounded
 wallpaper images, an optional bounded preview image, and source provenance.
 
 The source repository is never checked out. Symlinks, submodules, nested
 background trees, scripts, hooks, terminal/editor/application configs, and all
-unknown content are excluded. Git system and global configuration are disabled
-for the fetch, prompts are disabled, file sizes and aggregate image size are
-bounded, and each accepted image must match a supported file signature. Omarchy
+unknown content are excluded. Metadata is limited to 64 KiB for the commit and
+1 MiB per nonrecursive tree. Palettes are capped at 64 KiB, individual images at
+20 MiB, and combined images (including the preview) at 80 MiB. Declared blob sizes
+are checked before requesting raw content, and response bytes are capped during
+streaming even without a valid length header. All downloads share an aggregate
+budget of 82.125 MiB, a 60-second deadline checked between reads, and a 10-second
+socket timeout. Oversize detection may consume one extra byte before aborting.
+Redirects and compressed responses are refused; downloaded blobs must match the
+tree's SHA identity, and accepted images must match a supported file signature.
+Git system/global configuration and prompts are disabled for the new local
+repository. API errors, rate limits, or incomplete downloads stop installation. Omarchy
 installs and applies only the newly constructed data-only repository. A missing
 or malformed palette fails closed.
 

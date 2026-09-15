@@ -111,13 +111,21 @@ Shell plugins run unsandboxed with the current user's permissions. Review
 sources before enabling.
 
 Themes: only normalized GitHub repository URLs; bounded catalog fields;
-previews from strict GitHub allowlists. One-click installation clones the
-selected repository as a bare, exact Git snapshot without checking its files
-out, then constructs a new local theme from a strictly parsed color palette and
-bounded image files. Scripts, symlinks, submodules, application configs, and all
+previews from strict GitHub allowlists. One-click installation resolves one exact
+commit through the GitHub API, reads only the root and background tree metadata,
+and streams selected palette and image files from that commit. Remote Git clones,
+packs, and lazy blob fetches are not used. Metadata and file downloads have byte
+limits enforced while reading, an aggregate download budget, a 60-second deadline
+checked between reads, and a 10-second socket timeout. Redirects and compressed
+responses are refused. Declared file sizes are checked before download, and the
+downloaded bytes must match the tree's blob identity. A new local theme is built
+from the strictly parsed palette and bounded images. Scripts, symlinks, submodules, application configs, and all
 other upstream content are excluded before Omarchy sees the theme. The exact
 source commit is recorded in the installed theme. A catalog badge is not a
 security endorsement.
+
+Installation requires public GitHub API access; API errors or rate limits stop
+the install without invoking Omarchy. No GitHub credentials are requested.
 
 Wallpapers: only Aether and Omarchy picker helpers; capped streaming output;
 validated ids; previews from Aether's thumbnail cache; downloads from Aether's

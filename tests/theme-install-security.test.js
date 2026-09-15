@@ -17,7 +17,7 @@ const run = (command, args, options = {}) => {
   return result
 }
 
-const createHarness = async ({ colors, legacy = "" }) => {
+const createHarness = async ({ colors, legacy = "", mutateResponses = () => {} }) => {
   const root = await mkdtemp(join(tmpdir(), "theme-manager-install-"))
   const repository = join(root, "source")
   const mockBin = join(root, "bin")
@@ -38,14 +38,75 @@ const createHarness = async ({ colors, legacy = "" }) => {
   run(realGit, ["-C", repository, "config", "user.email", "test@example.invalid"])
   run(realGit, ["-C", repository, "add", "--all"])
   run(realGit, ["-C", repository, "commit", "-qm", "fixture"])
+  const commit = run(realGit, ["-C", repository, "rev-parse", "HEAD"]).stdout.trim()
+  const tree = run(realGit, ["-C", repository, "rev-parse", "HEAD^{tree}"]).stdout.trim()
+  const api = "https://api.github.com/repos/example/omarchy-safe-theme"
+  const responses = {}
+  const jsonResponse = (value) => ({ data: Buffer.from(JSON.stringify(value)).toString("base64") })
+  responses[`${api}/commits?per_page=1`] = jsonResponse([
+    { sha: commit, commit: { tree: { sha: tree } } }
+  ])
+  for (const directory of ["", "backgrounds"]) {
+    const reference = directory ? `HEAD:${directory}` : "HEAD"
+    const sha = directory
+      ? run(realGit, ["-C", repository, "rev-parse", reference]).stdout.trim()
+      : tree
+    const entries = run(realGit, ["-C", repository, "ls-tree", "-l", "-z", reference])
+      .stdout.split("\0")
+      .filter(Boolean)
+      .map((record) => {
+        const [metadata, path] = record.split("\t")
+        const [mode, type, sha, size] = metadata.trim().split(/\s+/)
+        return { mode, type, sha, size: type === "blob" ? Number(size) : undefined, path }
+      })
+    responses[`${api}/git/trees/${sha}`] = jsonResponse({ sha, truncated: false, tree: entries })
+    for (const entry of entries.filter((entry) => entry.type === "blob")) {
+      const path = directory ? `${directory}/${entry.path}` : entry.path
+      const contents = spawnSync(realGit, ["-C", repository, "show", `HEAD:${path}`])
+      assert.equal(contents.status, 0, contents.stderr.toString())
+      responses[
+        `https://raw.githubusercontent.com/example/omarchy-safe-theme/${commit}/${encodeURI(path)}`
+      ] = {
+        data: contents.stdout.toString("base64")
+      }
+    }
+  }
+  mutateResponses(responses)
+  const responsesPath = join(root, "responses.json")
+  const requestsPath = join(root, "requests.jsonl")
+  const launcher = join(root, "launch.py")
+  await writeFile(responsesPath, JSON.stringify(responses))
+  await writeFile(
+    launcher,
+    `import base64, io, json, os, runpy, sys, urllib.request
+responses = json.load(open(os.environ["MOCK_HTTP_RESPONSES"]))
+class Response(io.BytesIO):
+    status = 200
+    def __init__(self, fixture):
+        super().__init__(base64.b64decode(fixture["data"]))
+        self.headers = fixture.get("headers", {})
+class Opener:
+    def open(self, request, **kwargs):
+        with open(os.environ["MOCK_HTTP_REQUESTS"], "a") as log:
+            log.write(json.dumps(request.full_url) + "\\n")
+        if request.full_url not in responses:
+            raise RuntimeError("Unexpected HTTP request: " + request.full_url)
+        return Response(responses[request.full_url])
+urllib.request.build_opener = lambda *args: Opener()
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name="__main__")
+`
+  )
 
   await writeFile(
     join(mockBin, "git"),
     `#!/usr/bin/env node
 const { spawnSync } = require("node:child_process")
 const args = process.argv.slice(2)
-const index = args.indexOf(${JSON.stringify(sourceUrl)})
-if (index >= 0) args[index] = new URL("file://" + process.env.MOCK_THEME_REPOSITORY).href
+if (args.some(arg => ["clone", "fetch", "cat-file", "ls-remote"].includes(arg))) {
+  console.error("Remote Git and lazy object reads are forbidden")
+  process.exit(99)
+}
 const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: "inherit", env: process.env })
 process.exit(result.status === null ? 1 : result.status)
 `
@@ -71,17 +132,19 @@ fs.writeFileSync(process.env.MOCK_OMARCHY_LOG, JSON.stringify({ args, files: tre
   return {
     root,
     run: (url = sourceUrl) =>
-      spawnSync(installer, [url], {
+      spawnSync("python3", [launcher, installer, url], {
         encoding: "utf8",
         timeout: 20000,
         env: {
           ...process.env,
           PATH: `${mockBin}:${process.env.PATH}`,
-          MOCK_THEME_REPOSITORY: repository,
+          MOCK_HTTP_RESPONSES: responsesPath,
+          MOCK_HTTP_REQUESTS: requestsPath,
           MOCK_OMARCHY_LOG: omarchyLog
         }
       }),
     log: async () => JSON.parse(await readFile(omarchyLog, "utf8")),
+    requests: async () => (await readFile(requestsPath, "utf8")).trim().split("\n").map(JSON.parse),
     cleanup: () => rm(root, { recursive: true, force: true })
   }
 }
@@ -142,4 +205,96 @@ test("refuses non-GitHub and path-bearing repository input", async () => {
   } finally {
     await harness.cleanup()
   }
+})
+
+test("rejects oversized tree metadata during the initial read", async () => {
+  const harness = await createHarness({
+    colors: semanticColors,
+    mutateResponses: (responses) => {
+      const url = Object.keys(responses).find((url) => url.includes("/git/trees/"))
+      responses[url].data = Buffer.alloc(1024 * 1024 + 1, 32).toString("base64")
+    }
+  })
+  try {
+    const result = harness.run()
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /byte limit/)
+    assert.equal((await harness.requests()).length, 2)
+    await assert.rejects(harness.log(), { code: "ENOENT" })
+  } finally {
+    await harness.cleanup()
+  }
+})
+
+test("refuses an oversized remote blob before requesting its content", async () => {
+  const harness = await createHarness({
+    colors: semanticColors,
+    mutateResponses: (responses) => {
+      const url = Object.keys(responses).find((url) => url.includes("/git/trees/"))
+      const tree = JSON.parse(Buffer.from(responses[url].data, "base64").toString())
+      tree.tree.find((entry) => entry.path === "colors.toml").size = 64 * 1024 + 1
+      responses[url].data = Buffer.from(JSON.stringify(tree)).toString("base64")
+    }
+  })
+  try {
+    const result = harness.run()
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /Oversized theme file: colors.toml/)
+    assert.equal((await harness.requests()).length, 2)
+    await assert.rejects(harness.log(), { code: "ENOENT" })
+  } finally {
+    await harness.cleanup()
+  }
+})
+
+test("rejects blob bytes that disagree with the pinned tree identity", async () => {
+  const harness = await createHarness({
+    colors: semanticColors,
+    mutateResponses: (responses) => {
+      const url = Object.keys(responses).find((url) => url.endsWith("/colors.toml"))
+      const bytes = Buffer.from(responses[url].data, "base64")
+      bytes[0] ^= 1
+      responses[url].data = bytes.toString("base64")
+    }
+  })
+  try {
+    const result = harness.run()
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /changed while reading/)
+    await assert.rejects(harness.log(), { code: "ENOENT" })
+  } finally {
+    await harness.cleanup()
+  }
+})
+
+test("converts a legacy Alacritty palette using the same bounded snapshot", async () => {
+  const harness = await createHarness({
+    legacy: `[colors.normal]\n${[
+      "black",
+      "red",
+      "green",
+      "yellow",
+      "blue",
+      "magenta",
+      "cyan",
+      "white"
+    ]
+      .map((name) => `${name} = "0x112233"`)
+      .join("\n")}\n`
+  })
+  try {
+    const result = harness.run()
+    assert.equal(result.status, 0, result.stderr)
+    assert.match((await harness.log()).colors, /color0 = "#112233"/)
+    assert.equal(
+      (await harness.requests()).some((url) => url.endsWith("/colors.toml")),
+      false
+    )
+  } finally {
+    await harness.cleanup()
+  }
+})
+
+test("download byte budgets and redirect restrictions", () => {
+  run("python3", [join(process.cwd(), "tests", "theme-install-download.py")])
 })
