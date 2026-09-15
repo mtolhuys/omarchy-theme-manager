@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.4 - 2026-09-08
+
+- Fix image-selector launchers surviving a local plugin reload. Completion now
+  uses a detached process, so destroying the QML loader cannot cancel the done
+  marker that releases `omarchy-menu-images`.
+- Replace object and array spread syntax that the supported QML JavaScript
+  runtime rejects, restoring startup after 0.6.3.
+- Add a real Plugin Lab regression that opens the theme shortcut, reloads the
+  plugin, and asserts that the original launcher PID exits.
+
 ## 0.6.3 - 2026-09-07
 
 - **Sticky filters**: Wallhaven sheet filters + last query persist in

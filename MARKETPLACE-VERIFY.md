@@ -18,7 +18,6 @@ https://github.com/mtolhuys/omarchy-theme-manager
 
 - [x] I understand that only the exact target commit can become a verified marketplace snapshot and that verification is not a security audit.
 
-
 ---
 
 Maintainer notes (not required by form):

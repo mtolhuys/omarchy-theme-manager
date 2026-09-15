@@ -360,7 +360,10 @@ test("persists Wallhaven filters and upgrades Latest→Relevant for queries", ()
   const effective = model.effectiveSearchFilters("mountains", { sorting: "date_added" })
   assert.equal(effective.sorting, "relevance")
   assert.equal(model.effectiveSearchFilters("", { sorting: "date_added" }).sorting, "date_added")
-  assert.equal(model.effectiveSearchFilters("mountains", { sorting: "favorites" }).sorting, "favorites")
+  assert.equal(
+    model.effectiveSearchFilters("mountains", { sorting: "favorites" }).sorting,
+    "favorites"
+  )
 
   const args = model.searchArguments("city night", 1, 2, { sorting: "date_added" })
   assert.equal(args[args.indexOf("--sorting") + 1], "relevance")

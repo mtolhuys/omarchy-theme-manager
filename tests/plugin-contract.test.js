@@ -9,7 +9,7 @@ const read = (path) => readFile(join(process.cwd(), path), "utf8")
 test("keeps the published Theme Manager identity as the sole picker clone", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   assert.equal(manifest.id, "io.github.mtolhuys.theme-manager")
-  assert.equal(manifest.version, "0.6.3")
+  assert.equal(manifest.version, "0.6.4")
   assert.deepEqual(manifest.kinds, ["overlay"])
   assert.match(manifest.entryPoints.overlay, /^v[0-9]{4}\/ImagePicker\.qml$/)
   assert.equal(manifest.omarchy.clonedFrom, "omarchy.image-picker")
@@ -51,6 +51,14 @@ test("versions the complete QML and JavaScript runtime graph", async () => {
   ]) {
     assert.ok((await read(join(runtimeDir, file))).length > 0, file)
   }
+})
+
+test("releases image-selector clients independently of QML loader teardown", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const picker = await read(manifest.entryPoints.overlay)
+
+  assert.match(picker, /Quickshell\.execDetached\(\["touch", "--", String\(path\)\]\)/)
+  assert.doesNotMatch(picker, /doneFilesToRelease|releaseNextDoneFile|id: releaseProc/)
 })
 
 test("routes theme and wallpaper features by request context", async () => {
@@ -161,10 +169,7 @@ test("ships theme-set memory hook, Icons showcase chip, and Actions dropdown", a
   assert.match(picker, /icons-browse\.sh/)
   assert.match(picker, /IconBrowseController/)
   assert.match(picker, /id: iconsBrowseOcsButton/)
-  assert.match(
-    picker,
-    /readonly property bool localIconsMode: iconsMode && !iconsBrowseMode\n/
-  )
+  assert.match(picker, /readonly property bool localIconsMode: iconsMode && !iconsBrowseMode\n/)
   assert.match(
     picker,
     /canOpenIconsMode:[\s\S]*?&& \(wallpaperPickerActive \|\| themeManager\.themePickerActive\)/

@@ -211,7 +211,9 @@ const catalogFilterActiveCount = (filters) => {
 
 const catalogFilterKey = (filters) => {
   const normalized = normalizeCatalogFilters(filters)
-  return [normalized.listing, normalized.availability, normalized.sort, normalized.minStars].join("|")
+  return [normalized.listing, normalized.availability, normalized.sort, normalized.minStars].join(
+    "|"
+  )
 }
 
 const catalogFiltersActive = (filters) =>
@@ -287,15 +289,11 @@ const getAvailabilityOptions = () => cloneOptions(availabilityOptions)
 const getCatalogSortOptions = () => cloneOptions(sortOptions)
 const getMinStarsOptions = () => cloneOptions(minStarsOptions)
 
-const serializeCatalogFilters = (filters, query = "") =>
-  JSON.stringify(
-    {
-      ...normalizeCatalogFilters(filters),
-      query: normalizeCatalogQuery(query)
-    },
-    null,
-    2
-  ) + "\n"
+const serializeCatalogFilters = (filters, query = "") => {
+  const serialized = normalizeCatalogFilters(filters)
+  serialized.query = normalizeCatalogQuery(query)
+  return JSON.stringify(serialized, null, 2) + "\n"
+}
 
 const parseCatalogFilters = (raw) => {
   try {

@@ -171,20 +171,16 @@ const filterActiveCount = (filters) => {
 const effectiveSearchFilters = (query, filters) => {
   const normalized = normalizeFilters(filters)
   if (normalizeQuery(query) && normalized.sorting === "date_added") {
-    return { ...normalized, sorting: "relevance" }
+    normalized.sorting = "relevance"
   }
   return normalized
 }
 
-const serializeFilters = (filters, query = "") =>
-  JSON.stringify(
-    {
-      ...normalizeFilters(filters),
-      query: normalizeQuery(query)
-    },
-    null,
-    2
-  ) + "\n"
+const serializeFilters = (filters, query = "") => {
+  const serialized = normalizeFilters(filters)
+  serialized.query = normalizeQuery(query)
+  return JSON.stringify(serialized, null, 2) + "\n"
+}
 
 const parseFilters = (raw) => {
   try {
@@ -334,10 +330,10 @@ const appendUniqueRows = (existingRows, incomingRows) => {
   const combined = []
   const seen = {}
 
-  for (const row of [
-    ...(Array.isArray(existingRows) ? existingRows : []),
-    ...(Array.isArray(incomingRows) ? incomingRows : [])
-  ]) {
+  const rows = (Array.isArray(existingRows) ? existingRows : []).concat(
+    Array.isArray(incomingRows) ? incomingRows : []
+  )
+  for (const row of rows) {
     const id = stringValue(row && row.id)
     if (!wallpaperIdPattern.test(id) || seen[id]) continue
     seen[id] = true

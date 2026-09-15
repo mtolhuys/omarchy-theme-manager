@@ -166,10 +166,10 @@ const parseSearchResponse = (text) => {
 const appendUniqueRows = (existingRows, incomingRows) => {
   const combined = []
   const seen = {}
-  for (const row of [
-    ...(Array.isArray(existingRows) ? existingRows : []),
-    ...(Array.isArray(incomingRows) ? incomingRows : [])
-  ]) {
+  const rows = (Array.isArray(existingRows) ? existingRows : []).concat(
+    Array.isArray(incomingRows) ? incomingRows : []
+  )
+  for (const row of rows) {
     const id = stringValue(row && row.id)
     if (!contentIdPattern.test(id) || seen[id]) continue
     seen[id] = true

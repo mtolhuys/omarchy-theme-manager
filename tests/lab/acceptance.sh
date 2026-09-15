@@ -5,10 +5,11 @@
 # the disposable Omarchy plugin lab guest.
 
 omarchy_host_test() {
-  local initial_thumb_count install_source install_source_q plugin_root
+  local initial_thumb_count install_source install_source_q plugin_root version
   plugin_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
   install_source=${THEME_MANAGER_INSTALL_SOURCE:-/tmp/omarchy-theme-manager}
   printf -v install_source_q '%q' "$install_source"
+  version=$(jq -r '.version' "$plugin_root/manifest.json")
 
   log "Staging Omarchy Theme Manager"
   tar \
@@ -31,14 +32,14 @@ omarchy_host_test() {
     aether --help | grep -q -- '--wallhaven-download'" || return 1
 
   ssh_session "omarchy-plugin-add $install_source_q --enable --yes" || return 1
-  wait_for_guest_state "Theme Manager 0.4.0 is installed and loaded" 25 ssh_session \
+  wait_for_guest_state "Theme Manager $version is installed and loaded" 25 ssh_session \
     "omarchy-plugin-list --json | jq -e \
       'any(.[]; .id == \"io.github.mtolhuys.theme-manager\" and .enabled == true)' && \
-     jq -e '.version == \"0.4.0\" and \
+     jq -e '.version == \"$version\" and \
        .entryPoints.overlay == \"v0200/ImagePicker.qml\" and \
        .omarchy.clonedFrom == \"omarchy.image-picker\"' \
        \"\$HOME/.config/omarchy/plugins/io.github.mtolhuys.theme-manager/manifest.json\" && \
-     [[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.4.0\" ]]" || return 1
+     [[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"$version\" ]]" || return 1
 
   press meta_l-shift-ctrl-spc || return 1
   wait_for_guest_state "the native theme shortcut opens Theme Manager's theme mode" 20 ssh_session \
@@ -172,7 +173,7 @@ omarchy_host_test() {
   wait_for_guest_state "Theme Manager can be enabled again with the same runtime" 20 ssh_session \
     "omarchy-plugin-list --json | jq -e \
       'any(.[]; .id == \"io.github.mtolhuys.theme-manager\" and .enabled == true)' && \
-     [[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.4.0\" ]]" || return 1
+     [[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"$version\" ]]" || return 1
 
   ssh_session "omarchy-plugin-remove io.github.mtolhuys.theme-manager --yes" || return 1
   wait_for_guest_state "removal restores the native picker and keeps the wallpaper" 20 ssh_session \

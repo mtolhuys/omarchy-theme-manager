@@ -19,7 +19,7 @@ import "IconBrowseModel.js" as IconBrowseModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.6.3"
+  readonly property string buildIdentity: "0.6.4"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var manifest: null
@@ -41,7 +41,6 @@ Item {
   property int applySerial: 0
   property string doneFile: ""
   property string filterText: ""
-  property var doneFilesToRelease: []
   property bool catalogMode: false
   property var catalogPreviousImages: []
   property int catalogPreviousIndex: 0
@@ -1644,18 +1643,12 @@ Item {
     Qt.callLater(focusPicker)
   }
 
-  function releaseNextDoneFile() {
-    if (releaseProc.running || doneFilesToRelease.length === 0) return
-
-    const path = doneFilesToRelease.shift()
-    releaseProc.command = ["bash", "-c", ": > " + Util.shellQuote(path)]
-    releaseProc.running = true
-  }
-
   function finishDoneFile(path) {
     if (!path) return
-    doneFilesToRelease.push(path)
-    releaseNextDoneFile()
+    // A plugin rescan destroys this QML object immediately after close(). A
+    // child Process owned by the object is killed with it, so leave the tiny
+    // completion write to a detached process that survives that teardown.
+    Quickshell.execDetached(["touch", "--", String(path)])
   }
 
   function finishSelection(path) {
@@ -2299,11 +2292,6 @@ Item {
       if (root.applySerial === root.requestSerial)
         root.opened = false
     }
-  }
-
-  Process {
-    id: releaseProc
-    onExited: root.releaseNextDoneFile()
   }
 
   IconBrowseController {

@@ -78,7 +78,7 @@ const toggleFavorite = (favorites, path, context = {}) => {
   const normalized = normalizeFavorites(favorites)
   if (!target) return normalized
   if (normalized.includes(target)) return normalized.filter((value) => value !== target)
-  return [target, ...normalized].slice(0, maxFavorites)
+  return [target].concat(normalized).slice(0, maxFavorites)
 }
 
 // Favorites form a stable front section in most-recently-favorited order;

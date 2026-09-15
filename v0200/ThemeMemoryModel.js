@@ -151,7 +151,6 @@ const rememberedIconsDefault = (state, themeName) => {
 const hasWallpaperOverride = (state, themeName) => !!rememberedWallpaper(state, themeName)
 const hasIconsOverride = (state, themeName) => !!rememberedIcons(state, themeName)
 
-
 const imageBasename = (path) => {
   const target = safePath(path)
   if (!target) return ""
@@ -204,7 +203,6 @@ const installedWallpaperPath = (path, home, themeName) => {
   if (!target || !dir || !base) return ""
   return dir + "/" + base
 }
-
 
 const isUserInstalledWallpaper = (path, home, themeName) => {
   const target = safePath(path)

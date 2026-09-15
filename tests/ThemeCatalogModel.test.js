@@ -229,7 +229,9 @@ test("filters and sorts theme catalog rows locally", () => {
   assert.equal(model.catalogFiltersActive({}), false)
   assert.equal(model.catalogFiltersActive({ listing: "community" }), true)
   assert.deepEqual(
-    model.parseCatalogFilters(model.serializeCatalogFilters({ listing: "community", minStars: 50 })),
+    model.parseCatalogFilters(
+      model.serializeCatalogFilters({ listing: "community", minStars: 50 })
+    ),
     {
       listing: "community",
       availability: "all",

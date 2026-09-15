@@ -90,7 +90,7 @@ emit_theme() {
 
   [[ -f $index ]] || return 0
   case $name in
-    default|hicolor|.|..) return 0 ;;
+    default | hicolor | . | ..) return 0 ;;
     .*) return 0 ;;
   esac
   if is_hidden_theme "$index"; then
@@ -112,7 +112,7 @@ for root in "${roots[@]}"; do
     [[ -d $path ]] || continue
     name=${path##*/}
     case $name in
-      .|..) continue ;;
+      . | ..) continue ;;
       .*) continue ;;
     esac
     emit_theme "$root" "$name"

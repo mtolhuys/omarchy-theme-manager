@@ -102,10 +102,7 @@ test("detects picker vs external wallpaper paths and install targets", () => {
   assert.equal(ThemeMemoryModel.needsWallpaperInstall(themeBg, home, "vantablack"), false)
   assert.equal(ThemeMemoryModel.isAetherWallpaperPath(aether, home), true)
   assert.equal(ThemeMemoryModel.isPickerWallpaperPath(aether, home, "vantablack"), false)
-  assert.equal(
-    ThemeMemoryModel.installedWallpaperPath(aether, home, "vantablack"),
-    installed
-  )
+  assert.equal(ThemeMemoryModel.installedWallpaperPath(aether, home, "vantablack"), installed)
   assert.equal(ThemeMemoryModel.needsWallpaperInstall(aether, home, "../evil"), false)
   assert.equal(ThemeMemoryModel.themeBackgroundsDir(home, "bad/name"), "")
 })
@@ -120,4 +117,3 @@ test("recognizes user-installed theme background files only", () => {
   assert.equal(ThemeMemoryModel.isUserInstalledWallpaper(aether, home, "vantablack"), false)
   assert.equal(ThemeMemoryModel.isUserInstalledWallpaper(installed, home, "other"), false)
 })
-
