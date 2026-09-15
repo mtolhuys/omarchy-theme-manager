@@ -1,14 +1,13 @@
 # Changelog
 
-## 0.6.4 - 2026-09-08
+## 0.6.4 - 2026-09-15
 
-- Fix image-selector launchers surviving a local plugin reload. Completion now
-  uses a detached process, so destroying the QML loader cannot cancel the done
-  marker that releases `omarchy-menu-images`.
+- Merge the 0.5.12–0.5.16 hardening line into 0.6.x: Omarchy 4.0.3 helper
+  path resolution, discovery-only remote catalog with fail-closed data-only
+  theme installs, owner-checked no-follow wallpaper publication, and
+  descriptor-relative atomic catalog cache publication (`catalog-cache.py`).
 - Replace object and array spread syntax that the supported QML JavaScript
   runtime rejects, restoring startup after 0.6.3.
-- Add a real Plugin Lab regression that opens the theme shortcut, reloads the
-  plugin, and asserts that the original launcher PID exits.
 
 ## 0.6.3 - 2026-09-07
 
@@ -58,6 +57,53 @@
   preview thumbnails, confirmation, and safe install into `~/.local/share/icons`.
 - Network via `icons-browse.sh` (not QML curl); Esc returns to installed icons;
   install applies through existing sticky `applyIconTheme` memory.
+
+## 0.5.16 - 2026-09-13
+
+- Restore confirmed one-click theme installation through a fail-closed,
+  data-only boundary. Remote repositories are fetched as bare exact snapshots
+  and never checked out; only a strictly parsed palette and bounded verified
+  image formats are copied into a new local repository for Omarchy to install.
+  Scripts, symlinks, submodules, configs, nested content, and unknown files are
+  excluded, while the exact source commit is retained as provenance.
+
+## 0.5.15 - 2026-09-12
+
+- Harden remote catalog caching against directory and cache-file symlink
+  attacks. Cache directories now use owner-checked no-follow descriptors;
+  downloads are staged exclusively and atomically published relative to the
+  held cache descriptor.
+
+## 0.5.14 - 2026-09-11
+
+- Harden external wallpaper installation against destination symlink attacks.
+  Every destination directory is opened without following symlinks and checked
+  for current-user ownership and safe write permissions; wallpaper bytes are
+  staged in an exclusive file and atomically published without replacing an
+  existing name.
+
+## 0.5.13 - 2026-09-11
+
+- Make the remote theme catalog fail closed: catalog entries are discovery
+  metadata only and can no longer flow into `omarchy theme install`. The former
+  install action now opens the normalized GitHub repository for source review,
+  keeping mutable catalog data outside the theme execution and apply path.
+
+## 0.5.12 - 2026-09-10
+
+- Omarchy 4.0.3 compatibility: resolve all bundled helper scripts from the
+  plugin's own file location instead of the host's private `__sourceDir`
+  manifest field, which third-party manifests no longer carry. Theme and icon
+  inventory, wallpaper install/remove/reset, catalog loading, and the theme-set
+  hook run again.
+
+## 0.5.11 - 2026-09-08
+
+- Fix image-selector launchers surviving a local plugin reload. Completion now
+  uses a detached process, so destroying the QML loader cannot cancel the done
+  marker that releases `omarchy-menu-images`.
+- Add a real Plugin Lab regression that opens the theme shortcut, reloads the
+  plugin, and asserts that the original launcher PID exits.
 
 ## 0.5.10 - 2026-09-06
 

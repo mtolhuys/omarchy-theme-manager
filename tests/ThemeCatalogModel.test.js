@@ -114,7 +114,7 @@ test("sanitizes remote display values and allowlists GitHub preview hosts", () =
   )
 })
 
-test("surfaces catalog warnings in an explicit installation confirmation", () => {
+test("keeps catalog notes as bounded discovery metadata", () => {
   const [row] = model.catalogRows({
     officialRepositories: ["https://github.com/example/omarchy-safe-theme"],
     themes: [
@@ -127,10 +127,10 @@ test("surfaces catalog warnings in an explicit installation confirmation", () =>
     ]
   })
 
-  const message = model.installConfirmationMessage(row)
-  assert.match(message, /cloned and applied immediately/)
-  assert.match(message, /Officially listed by Omarchy/)
-  assert.match(message, /Catalog note: installs an editor extension/)
+  assert.equal(row.status, "Install")
+  assert.deepEqual(row.warnings, ["installs an editor extension"])
+  assert.equal(row.canInstall, true)
+  assert.match(model.installConfirmationMessage(row), /sanitized, exact repository snapshot/)
 })
 
 test("sorts installable themes ahead of blocked catalog entries", () => {

@@ -32,37 +32,69 @@ omarchy_host_test() {
     aether --help | grep -q -- '--wallhaven-download'" || return 1
 
   ssh_session "omarchy-plugin-add $install_source_q --enable --yes" || return 1
-  wait_for_guest_state "Theme Manager $version is installed and loaded" 25 ssh_session \
+  wait_for_guest_state "Theme Manager $version is installed" 25 ssh_session \
     "omarchy-plugin-list --json | jq -e \
       'any(.[]; .id == \"io.github.mtolhuys.theme-manager\" and .enabled == true)' && \
      jq -e '.version == \"$version\" and \
        .entryPoints.overlay == \"v0200/ImagePicker.qml\" and \
        .omarchy.clonedFrom == \"omarchy.image-picker\"' \
-       \"\$HOME/.config/omarchy/plugins/io.github.mtolhuys.theme-manager/manifest.json\" && \
-     [[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"$version\" ]]" || return 1
+       \"\$HOME/.config/omarchy/plugins/io.github.mtolhuys.theme-manager/manifest.json\"" || return 1
+  if ! wait_for_guest_state "Theme Manager $version is loaded" 25 ssh_session \
+    "[[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"$version\" ]]"; then
+    ssh_session "journalctl --user --since '-2 minutes' --no-pager | tail -n 500" \
+      >"$RUN_DIR/theme-manager-shell-load-failure.log" 2>&1 || true
+    return 1
+  fi
+  wait_for_guest_state "the Theme Manager hook is installed" 15 ssh_session \
+    "test -x \"\$HOME/.config/omarchy/hooks/theme-set.d/50-theme-manager-memory\"" || return 1
 
   press meta_l-shift-ctrl-spc || return 1
   wait_for_guest_state "the native theme shortcut opens Theme Manager's theme mode" 20 ssh_session \
     "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
-       jq -e '.opened == true and .mode == \"themes\" and .images > 0' && \
+       jq -e '.opened == true and .mode == \"themes\" and .images > 0 and \
+         .iconsInventoryCount > 0 and .footerIconHasPreviews == true' && \
      hyprctl -j layers | jq -e \
        '[.. | objects | select(.namespace? == \"omarchy-image-selector\")] | length >= 1'" || return 1
   capture_console "success-theme-manager-01-installed-themes" || return 1
 
+  ssh_session "cache_dir=\"\$HOME/.cache/omarchy-theme-manager\" && \
+    victim=\"\$HOME/theme-manager-catalog-victim\" && \
+    mkdir -p \"\$cache_dir\" && \
+    rm -f \"\$cache_dir/themes-data.json\" && \
+    printf 'untouched' >\"\$victim\" && \
+    ln -s -- \"\$victim\" \"\$cache_dir/themes-data.json\"" || return 1
   press ctrl-b || return 1
   wait_for_guest_state "Ctrl+B opens the bounded theme catalog" 75 ssh_session \
     "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
-       jq -e '.opened == true and .mode == \"catalog\" and .images > 0'" || return 1
+       jq -e '.opened == true and .mode == \"catalog\" and .images > 0' && \
+     [[ \$(cat \"\$HOME/theme-manager-catalog-victim\") == untouched ]] && \
+     [[ -f \"\$HOME/.cache/omarchy-theme-manager/themes-data.json\" && \
+        ! -L \"\$HOME/.cache/omarchy-theme-manager/themes-data.json\" ]]" || return 1
   capture_console "success-theme-manager-02-theme-catalog" || return 1
 
-  press esc || return 1
-  wait_for_guest_state "Escape returns from the catalog to installed themes" 20 ssh_session \
+  ssh_session "find \"\$HOME/.config/omarchy/themes\" -mindepth 1 -maxdepth 1 -type d | \
+    wc -l > /tmp/theme-manager-theme-count-before-install" || return 1
+  press ret || return 1
+  wait_for_guest_state "Return opens the safe theme installation confirmation" 20 ssh_session \
     "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
-       jq -e '.opened == true and .mode == \"themes\" and .images > 0'" || return 1
-  press esc || return 1
-  wait_for_guest_state "the theme picker closes cleanly" 20 ssh_session \
-    "hyprctl -j layers | jq -e \
-      '[.. | objects | select(.namespace? == \"omarchy-image-selector\")] | length == 0'" || return 1
+       jq -e '.opened == true and .mode == \"catalog\" and .catalogInstallConfirmationOpen == true'" || return 1
+  capture_console "success-theme-manager-02b-theme-install-confirmation" || return 1
+  press ret || return 1
+  wait_for_guest_state "confirming installs and applies only a sanitized exact snapshot" 90 ssh_session \
+    "count=\$(find \"\$HOME/.config/omarchy/themes\" -mindepth 1 -maxdepth 1 -type d | wc -l) && \
+     before=\$(cat /tmp/theme-manager-theme-count-before-install) && \
+     (( count == before + 1 )) && \
+     theme=\$(cat \"\$HOME/.local/state/omarchy/current/theme.name\") && \
+     dir=\"\$HOME/.config/omarchy/themes/\$theme\" && \
+     [[ -f \"\$dir/colors.toml\" && -f \"\$dir/SOURCE.md\" && -d \"\$dir/.git\" ]] && \
+     grep -Eq '/commit/[0-9a-f]{40}' \"\$dir/SOURCE.md\" && \
+     ! find \"\$dir\" -path \"\$dir/.git\" -prune -o -type l -print -quit | grep -q . && \
+     ! find \"\$dir\" -path \"\$dir/.git\" -prune -o -type f \
+       ! -name colors.toml ! -name SOURCE.md ! -name preview.png \
+       ! -path \"\$dir/backgrounds/*.png\" ! -path \"\$dir/backgrounds/*.jpg\" \
+       ! -path \"\$dir/backgrounds/*.jpeg\" ! -path \"\$dir/backgrounds/*.gif\" \
+       ! -path \"\$dir/backgrounds/*.webp\" ! -path \"\$dir/backgrounds/*.bmp\" \
+       -print -quit | grep -q ." || return 1
 
   ssh_session "rm -rf \"\$HOME/.cache/aether/wallhaven-thumbs\"" || return 1
   press meta_l-ctrl-spc || return 1
@@ -154,14 +186,34 @@ omarchy_host_test() {
   capture_console "success-theme-manager-07-filtered" || return 1
 
   press ret || return 1
-  wait_for_guest_state "the selected full wallpaper is downloaded and applied" 55 ssh_session \
-    "background=\$(readlink -f \"\$HOME/.local/state/omarchy/current/background\") && \
-     [[ \$background == \"\$HOME/.local/share/aether/wallpapers/\"* ]] && \
+  wait_for_guest_state "the selected full wallpaper is installed into the current theme and applied" 55 ssh_session \
+    "theme=\$(cat \"\$HOME/.local/state/omarchy/current/theme.name\") && \
+     background=\$(readlink -f \"\$HOME/.local/state/omarchy/current/background\") && \
+     [[ \$background == \"\$HOME/.config/omarchy/backgrounds/\$theme/\"* ]] && \
      file --brief --mime-type \"\$background\" | grep -q '^image/' && \
+     jq -e --arg theme \"\$theme\" --arg background \"\$background\" \
+       '.themes[\$theme].wallpaper == \$background' \
+       \"\$HOME/.config/omarchy/theme-manager-memory.json\" && \
      hyprctl -j layers | jq -e \
        '[.. | objects | select(.namespace? == \"omarchy-image-selector\")] | length == 0'" || return 1
   ssh_session "test -z \"\$(hyprctl configerrors)\"" || return 1
   capture_console "success-theme-manager-08-wallpaper-applied" || return 1
+
+  wait_for_guest_state "a planted wallpaper symlink cannot redirect publication" 20 ssh_session \
+    "theme=\$(cat \"\$HOME/.local/state/omarchy/current/theme.name\") && \
+     theme_dir=\"\$HOME/.config/omarchy/backgrounds/\$theme\" && \
+     source=\"\$HOME/.cache/aether/wallpapers/symlink-guard.png\" && \
+     victim=\"\$HOME/theme-manager-symlink-victim\" && \
+     mkdir -p \"\$(dirname \"\$source\")\" && \
+     cp -- \"\$(readlink -f \"\$HOME/.local/state/omarchy/current/background\")\" \"\$source\" && \
+     printf 'untouched' >\"\$victim\" && \
+     ln -s -- \"\$victim\" \"\$theme_dir/symlink-guard.png\" && \
+     installed=\$(\"\$HOME/.config/omarchy/plugins/io.github.mtolhuys.theme-manager/install-wallpaper.sh\" \
+       \"\$theme\" \"\$source\") && \
+     [[ \$installed == \"\$theme_dir/symlink-guard-2.png\" ]] && \
+     [[ \$(cat \"\$victim\") == untouched ]] && \
+     [[ -L \$theme_dir/symlink-guard.png ]] && \
+     [[ -f \$installed && ! -L \$installed ]]" || return 1
 
   ssh_session "omarchy-plugin-disable io.github.mtolhuys.theme-manager" || return 1
   wait_for_guest_state "disabling Theme Manager restores the native picker" 20 ssh_session \

@@ -16,6 +16,14 @@ test("keeps the published Theme Manager identity as the sole picker clone", asyn
   assert.equal(manifest.keepLoaded, true)
 })
 
+test("releases image-selector clients independently of QML loader teardown", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const picker = await read(manifest.entryPoints.overlay)
+
+  assert.match(picker, /Quickshell\.execDetached\(\["touch", "--", String\(path\)\]\)/)
+  assert.doesNotMatch(picker, /doneFilesToRelease|releaseNextDoneFile|id: releaseProc/)
+})
+
 test("versions the complete QML and JavaScript runtime graph", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   const runtimeDir = dirname(manifest.entryPoints.overlay)
@@ -61,6 +69,30 @@ test("releases image-selector clients independently of QML loader teardown", asy
   assert.doesNotMatch(picker, /doneFilesToRelease|releaseNextDoneFile|id: releaseProc/)
 })
 
+test("resolves bundled helpers without private host manifest fields", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const picker = await read(manifest.entryPoints.overlay)
+
+  assert.match(picker, /Qt\.resolvedUrl\("\.\.\/"\)/)
+  assert.match(picker, /decodeURIComponent\(value\)/)
+  assert.doesNotMatch(picker, /manifest\.__sourceDir/)
+
+  for (const helper of [
+    "catalog.sh",
+    "icons-browse.sh",
+    "icons-inventory.sh",
+    "install-theme.py",
+    "install-wallpaper.sh",
+    "remove-wallpaper.sh",
+    "reset-wallpaper.sh",
+    "theme-inventory.sh",
+    "hooks/theme-set.d/50-theme-manager-memory"
+  ]) {
+    const escaped = helper.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    assert.match(picker, new RegExp('pluginScriptPath\\("' + escaped + '"\\)'))
+  }
+})
+
 test("routes theme and wallpaper features by request context", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   const runtimeDir = dirname(manifest.entryPoints.overlay)
@@ -79,6 +111,18 @@ test("routes theme and wallpaper features by request context", async () => {
   assert.match(picker, /if \(catalogMode\).*themeCatalog\.requestInstall/s)
   assert.match(picker, /if \(wallhavenMode\).*wallhaven\.download/s)
 
+  const catalogController = await read(join(runtimeDir, "ThemeCatalogController.qml"))
+  const catalogModel = await read(join(runtimeDir, "ThemeCatalogModel.js"))
+  const catalogRuntime = [picker, catalogController, catalogModel].join("\n")
+  assert.match(
+    catalogController,
+    /installProc\.command = \[installScriptPath, entry\.repositoryUrl\]/
+  )
+  assert.match(catalogController, /requestInstall/)
+  assert.match(catalogController, /confirmInstall/)
+  assert.match(picker, /pluginScriptPath\("install-theme\.py"\)/)
+  assert.doesNotMatch(catalogRuntime, /xdg-open/)
+
   assert.match(picker, /ThemeMemoryModel/)
   assert.match(picker, /root\.openIcons\(\)/)
   assert.match(picker, /function openIcons\(\)/)
@@ -89,6 +133,16 @@ test("routes theme and wallpaper features by request context", async () => {
   assert.match(picker, /catalogStickyQuery/)
   assert.match(picker, /refreshCatalogRows/)
   assert.doesNotMatch(picker, /io\.github\.mtolhuys\.wallpaper-manager/)
+})
+
+test("publishes catalog cache entries through a checked directory descriptor", async () => {
+  const cache = await read("catalog-cache.py")
+  assert.match(cache, /os\.O_DIRECTORY \| os\.O_NOFOLLOW/)
+  assert.match(cache, /info\.st_uid != os\.getuid\(\)/)
+  assert.match(cache, /os\.O_EXCL \| os\.O_NOFOLLOW/)
+  assert.match(cache, /os\.replace\(/)
+  assert.match(cache, /src_dir_fd=cache_fd/)
+  assert.match(cache, /dst_dir_fd=cache_fd/)
 })
 
 test("delegates SFW Wallhaven traffic exclusively to bounded Aether processes", async () => {
@@ -257,6 +311,12 @@ test("installs external wallpapers into theme backgrounds for the local picker",
   assert.match(memoryModel, /isUserInstalledWallpaper/)
   assert.match(installer, /\.config\/omarchy\/backgrounds/)
   assert.match(installer, /realpath -e/)
+  const publisher = await read("publish-wallpaper.py")
+  assert.match(publisher, /os\.O_NOFOLLOW/)
+  assert.match(publisher, /info\.st_uid != os\.getuid\(\)/)
+  assert.match(publisher, /os\.O_EXCL/)
+  assert.match(publisher, /os\.link\(/)
+  assert.doesNotMatch(installer, /cp -f/)
 
   const remover = await read("remove-wallpaper.sh")
   const resetter = await read("reset-wallpaper.sh")

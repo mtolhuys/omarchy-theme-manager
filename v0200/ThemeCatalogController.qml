@@ -6,6 +6,7 @@ Item {
   id: root
 
   property string catalogScriptPath: ""
+  property string installScriptPath: ""
   property bool pickerOpen: false
   property var installedThemes: ({})
   property var stockThemes: ({})
@@ -87,7 +88,7 @@ Item {
     confirmationOpen = false
     pendingEntry = null
 
-    if (!entry || entry !== selectedEntry || entry.canInstall !== true || busy) {
+    if (!entry || entry !== selectedEntry || entry.canInstall !== true || busy || !installScriptPath) {
       focusRequested()
       return
     }
@@ -96,7 +97,7 @@ Item {
     errorMessage = ""
     installStderr = ""
     installProc.targetEntry = entry
-    installProc.command = ["omarchy", "theme", "install", entry.repositoryUrl]
+    installProc.command = [installScriptPath, entry.repositoryUrl]
     installProc.running = true
   }
 
@@ -111,7 +112,7 @@ Item {
           root.payload = parsed
           root.rebuildRows(true)
           if (root.rows.length === 0)
-            root.errorMessage = "No installable themes were found in the catalog"
+            root.errorMessage = "No themes were found in the catalog"
         } catch (_) {
           root.rows = []
           root.errorMessage = "The theme catalog returned invalid data"
@@ -165,4 +166,5 @@ Item {
       }
     }
   }
+
 }

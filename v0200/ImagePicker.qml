@@ -278,6 +278,7 @@ Item {
       images: imageArray.length,
       query: wallhavenMode ? filterText : "",
       filtersOpen: filterSheet.opened || catalogFilterSheet.opened,
+      catalogInstallConfirmationOpen: themeCatalog.confirmationOpen,
       favoriteCount: favoriteIds.length,
       currentFavorite: currentFavorite,
       favoritesOnly: favoritesOnly,
@@ -301,9 +302,22 @@ Item {
     return omarchyPath + "/shell/plugins/image-picker/" + name
   }
 
+  function localPath(url) {
+    var value = String(url || "")
+    if (value.indexOf("file://") === 0) value = value.substring(7)
+    try {
+      return decodeURIComponent(value)
+    } catch (e) {
+      return value
+    }
+  }
+
   function pluginScriptPath(name) {
-    const sourceDir = manifest && manifest.__sourceDir ? String(manifest.__sourceDir) : ""
-    return sourceDir ? sourceDir.replace(/\/$/, "") + "/" + name : ""
+    // Third-party manifests do not expose the host's private source directory
+    // (Omarchy 4.0.3 sanitizes it), so resolve from this file, which lives one
+    // level under the plugin root (v0200/).
+    const dir = localPath(Qt.resolvedUrl("../")).replace(/\/$/, "")
+    return dir ? dir + "/" + name : ""
   }
 
   function focusPicker() {
@@ -1778,7 +1792,7 @@ Item {
   }
 
   function openSelector(nextImageDirs, nextImageRows, nextSelectedImage, nextSelectionFile, nextDoneFile, nextShowLabels, nextFilterable) {
-    // Warm Icons chip before first paint (inventory needs manifest.__sourceDir).
+    // Warm the Icons chip before first paint.
     ensureFooterIconsReady()
     if (catalogMode) leaveCatalog(false)
     if (wallhavenMode) leaveWallhaven(false)
@@ -2324,6 +2338,7 @@ Item {
   ThemeCatalogController {
     id: themeCatalog
     catalogScriptPath: root.pluginScriptPath("catalog.sh")
+    installScriptPath: root.pluginScriptPath("install-theme.py")
     pickerOpen: root.opened
     installedThemes: themeManager.installedThemes
     stockThemes: themeManager.stockThemes
@@ -2398,7 +2413,7 @@ Item {
         if (iconBrowse.confirmationOpen) {
           if (iconInstallConfirm.handleKey(event)) event.accepted = true
         } else if (themeCatalog.confirmationOpen) {
-          if (installConfirm.handleKey(event)) event.accepted = true
+          if (catalogInstallConfirm.handleKey(event)) event.accepted = true
         } else if (themeManager.confirmationOpen) {
           if (uninstallConfirm.handleKey(event)) event.accepted = true
         } else if (iconBrowseFilterSheet.opened) {
@@ -2897,7 +2912,7 @@ Item {
           themeBrowseButton.implicitHeight,
           catalogBackButton.implicitHeight,
           uninstallButton.implicitHeight,
-          catalogInstallButton.implicitHeight,
+          catalogReviewButton.implicitHeight,
           wallpapersCrossNavButton.implicitHeight,
           themesCrossNavButton.implicitHeight
         )
@@ -2953,8 +2968,8 @@ Item {
             if (width > 0) width += Style.space(8)
             width += iconsBrowseInstallButton.implicitWidth
           }
-          if (catalogInstallButton.visible)
-            width = Math.max(width, catalogInstallButton.implicitWidth)
+          if (catalogReviewButton.visible)
+            width = Math.max(width, catalogReviewButton.implicitWidth)
           return width
         }
 
@@ -3533,7 +3548,7 @@ Item {
         }
 
         Button {
-          id: catalogInstallButton
+          id: catalogReviewButton
           visible: root.catalogMode
           enabled: themeCatalog.canInstallSelected
           anchors.right: parent.right
@@ -3542,11 +3557,9 @@ Item {
           tooltipText: {
             const item = themeCatalog.selectedEntry
             if (!item) return ""
-            if (item.installed) return "This repository is already installed"
-            if (item.stockConflict) return "This repository would overwrite a stock theme slug"
-            if (item.warnings && item.warnings.length > 0)
-              return "Review " + item.warnings.length + " catalog notes before installing"
-            return "Clone and immediately apply this theme (Enter)"
+            if (item.installed) return "This theme is already installed"
+            if (item.stockConflict) return "A built-in theme already uses this name"
+            return "Install a sanitized exact snapshot (Enter)"
           }
           foreground: themeCatalog.canInstallSelected ? Color.accent : Color.muted
           accent: Color.accent
@@ -3727,6 +3740,21 @@ Item {
       }
 
       ConfirmDialog {
+        id: catalogInstallConfirm
+        anchors.fill: parent
+        opened: themeCatalog.confirmationOpen
+        z: 1000
+        message: themeCatalog.confirmationMessage
+        confirmText: "Install"
+        background: root.dimColor
+        foreground: root.foreground
+        scrim: root.scrim
+        selectedText: Color.accent
+        onCanceled: themeCatalog.cancelInstall()
+        onConfirmed: themeCatalog.confirmInstall()
+      }
+
+      ConfirmDialog {
         id: uninstallConfirm
         anchors.fill: parent
         opened: themeManager.confirmationOpen
@@ -3739,21 +3767,6 @@ Item {
         selectedText: Color.accent
         onCanceled: themeManager.cancelUninstall()
         onConfirmed: themeManager.confirmUninstall()
-      }
-
-      ConfirmDialog {
-        id: installConfirm
-        anchors.fill: parent
-        opened: themeCatalog.confirmationOpen
-        z: 1000
-        message: themeCatalog.confirmationMessage
-        confirmText: "Install"
-        background: root.dimColor
-        foreground: root.foreground
-        scrim: root.scrim
-        selectedText: Color.accent
-        onCanceled: themeCatalog.cancelInstall()
-        onConfirmed: themeCatalog.confirmInstall()
       }
 
       ConfirmDialog {

@@ -75,10 +75,5 @@ case $src in
     ;;
 esac
 
-mkdir -p "$theme_dir"
-dest=$theme_dir/$base
-
-# Prefer keeping wallhaven-*.png (and other) basenames; overwrite when re-saving
-# the same Aether download or another external file with that name.
-cp -f "$src" "$dest"
-printf '%s\n' "$dest"
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+exec python3 "$script_dir/publish-wallpaper.py" "$theme" "$src"

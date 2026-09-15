@@ -70,6 +70,12 @@ const displayStatus = ({ installed, stockConflict }) => {
   return "Install"
 }
 
+const installConfirmationMessage = (entry) => {
+  const row = objectValue(entry)
+  const name = plainTextValue(row.displayName || row.installSlug || "this theme", 120)
+  return `Install “${name}” from a sanitized, exact repository snapshot? Only its palette and bounded wallpaper images are imported; scripts and application configs are ignored. Omarchy applies the theme immediately.`
+}
+
 const catalogRows = (payload, inventory = {}) => {
   const data = objectValue(payload)
   const installedThemes = objectValue(inventory.installedThemes)
@@ -107,6 +113,8 @@ const catalogRows = (payload, inventory = {}) => {
     const description = plainTextValue(entry.description, 500)
     const previewUrl = safePreviewUrl(entry.previewUrl || entry.preview_url)
 
+    const canInstall = !installed && !stockConflict
+
     rowsByRepository[repositoryUrl] = {
       filePath: repositoryUrl,
       fileName: `${installSlug}.webp`,
@@ -122,7 +130,7 @@ const catalogRows = (payload, inventory = {}) => {
       official,
       installed,
       stockConflict,
-      canInstall: !installed && !stockConflict,
+      canInstall,
       status: displayStatus({ installed, stockConflict }),
       searchText: [name, owner, description, installSlug, repositoryUrl, apps.join(" ")]
         .join(" ")
@@ -316,21 +324,6 @@ const parseCatalogFilterState = (raw) => {
   }
 }
 
-const installConfirmationMessage = (entry) => {
-  const row = objectValue(entry)
-  if (!row.canInstall) return ""
-
-  const origin = row.owner ? `@${row.owner}` : "its GitHub repository"
-  const trust = row.official ? " Officially listed by Omarchy." : ""
-  const warnings = arrayValue(row.warnings).slice(0, 3)
-  const warning =
-    warnings.length > 0
-      ? ` Catalog note${warnings.length === 1 ? "" : "s"}: ${warnings.join("; ")}.`
-      : ""
-
-  return `Install ${row.displayName} from ${origin}? It will be cloned and applied immediately.${trust}${warning}`
-}
-
 if (typeof module !== "undefined") {
   module.exports = {
     normalizeRepositoryUrl,
@@ -340,8 +333,8 @@ if (typeof module !== "undefined") {
     plainTextValue,
     safePreviewUrl,
     parsedArray,
-    catalogRows,
     installConfirmationMessage,
+    catalogRows,
     defaultCatalogFilters,
     normalizeCatalogFilters,
     catalogFilterKey,

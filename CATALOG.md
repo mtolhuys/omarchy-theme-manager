@@ -17,15 +17,26 @@ The normalized GitHub repository URL is the primary identity. Protocol, `.git`,
 trailing-slash, query, fragment, and URL-case variants collapse into one entry.
 Different repositories with the same display name remain separate.
 
-Before enabling **Install**, Theme Manager checks the destination slug used by
-Omarchy against stock themes, user themes, and the Git origins of installed
-themes. Remote text is sanitized and bounded. Preview URLs are accepted only
-from `raw.githubusercontent.com` or GitHub's `/user-attachments/assets/` path,
-and the repository URL is passed as a separate argument to Omarchy's installer.
+Theme Manager checks the destination slug used by Omarchy against stock themes,
+user themes, and the Git origins of installed themes so availability remains
+useful discovery metadata. Remote text is sanitized and bounded. Preview URLs
+are accepted only from `raw.githubusercontent.com` or GitHub's
+`/user-attachments/assets/` path.
 
-Catalog records and badges are not security endorsements. Installation always
-requires confirmation, states that Omarchy applies the theme immediately, and
-shows catalog notes when present.
+Catalog records and badges are not security endorsements. Theme Manager never
+passes a catalog repository directly to `omarchy theme install`. On confirmed
+installation it obtains a bare Git snapshot, resolves that download to a full
+commit ID, and reads only Git blobs at that exact commit. It creates a separate
+local repository containing a strictly parsed `colors.toml`, up to 16 bounded
+wallpaper images, an optional bounded preview image, and source provenance.
+
+The source repository is never checked out. Symlinks, submodules, nested
+background trees, scripts, hooks, terminal/editor/application configs, and all
+unknown content are excluded. Git system and global configuration are disabled
+for the fetch, prompts are disabled, file sizes and aggregate image size are
+bounded, and each accepted image must match a supported file signature. Omarchy
+installs and applies only the newly constructed data-only repository. A missing
+or malformed palette fails closed.
 
 ## Cache
 

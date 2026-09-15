@@ -12,7 +12,8 @@ https://github.com/mtolhuys/omarchy-theme-manager
 
 ### Target commit
 
-0a64410c4b68b44120101f261cdd77be8a7f0d27
+Use the full 40-character commit printed by `git rev-parse origin/main` after
+the release has been pushed.
 
 ### Verification acknowledgment
 
@@ -23,6 +24,12 @@ https://github.com/mtolhuys/omarchy-theme-manager
 Maintainer notes (not required by form):
 
 - Category already Appearance; tag quickshell
-- Publishing 0.5.10: sticky per-theme wallpaper/icons memory, catalog filters + fuzzy search, Themes⇄Wallpapers cross-nav, Icons showcase, Wallhaven via Aether, Actions menu
-- Marketing banner rebuilt from disposable Plugin Lab Matte Black captures (not daily host)
-- Caption polish: quiet secondary-only top-center lines (middots; no ALL-CAPS / no ACTIONS label)
+- Publishing 0.5.16: restores confirmed one-click catalog installation through
+  a data-only boundary rather than passing a mutable catalog URL to Omarchy
+- Remote repositories are fetched bare and never checked out; the installed
+  repository contains only a strictly parsed palette, bounded image formats,
+  and provenance with the exact source commit
+- Scripts, symlinks, submodules, application configs, nested backgrounds, and
+  unknown files are excluded before `omarchy theme install` is called
+- `omakit verify` reports no findings; the expected `installer` capability
+  requires maintainer review
