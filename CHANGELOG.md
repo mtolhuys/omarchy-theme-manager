@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Address marketplace issue #5344: replace remote partial Git clones and lazy
+  blob fetching with bounded HTTP reads of one exact commit, two nonrecursive
+  trees, and selected data files. Check declared sizes before fetching blobs,
+  enforce per-response and aggregate byte budgets during reads, refuse
+  redirects/compression, and compare downloaded blobs with their tree identities.
+
 ## 0.6.4 - 2026-09-15
 
 - Merge the 0.5.12–0.5.16 hardening line into 0.6.x: Omarchy 4.0.3 helper

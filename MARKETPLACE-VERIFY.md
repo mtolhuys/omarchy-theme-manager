@@ -24,12 +24,22 @@ the release has been pushed.
 Maintainer notes (not required by form):
 
 - Category already Appearance; tag quickshell
-- Publishing 0.5.16: restores confirmed one-click catalog installation through
-  a data-only boundary rather than passing a mutable catalog URL to Omarchy
-- Remote repositories are fetched bare and never checked out; the installed
-  repository contains only a strictly parsed palette, bounded image formats,
-  and provenance with the exact source commit
+- Addresses the resource-exhaustion blocker in issue #5344: no remote Git clone,
+  pack fetch, or lazy blob download occurs
+- The GitHub API resolves one exact commit and at most two nonrecursive trees;
+  metadata is capped while streaming, and declared file sizes are checked before
+  any raw blob request
+- Raw files are streamed within per-file and aggregate byte budgets, without
+  redirects or compression, and checked against their tree blob identities
+- The installed repository contains only a strictly parsed palette, bounded
+  image formats, and provenance with the exact source commit
 - Scripts, symlinks, submodules, application configs, nested backgrounds, and
   unknown files are excluded before `omarchy theme install` is called
 - `omakit verify` reports no findings; the expected `installer` capability
   requires maintainer review
+
+Transport contracts: GitHub's [commit listing](https://docs.github.com/en/rest/commits/commits#list-commits)
+defaults to the repository's default branch; its [tree endpoint](https://docs.github.com/en/rest/git/trees#get-a-tree)
+is nonrecursive when the `recursive` parameter is omitted and exposes blob size,
+mode, and SHA. Python's [HTTPResponse.read1](https://docs.python.org/3/library/http.client.html#http.client.HTTPResponse.read1)
+supports bounded reads. API rate limits and download errors abort installation.
