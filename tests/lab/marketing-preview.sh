@@ -6,11 +6,12 @@
 # Actions, and keeps full-bleed console evidence for banner composition.
 
 omarchy_host_test() {
-  local install_source install_source_q plugin_root start_epoch viewport_width viewport_height
+  local install_source install_source_q plugin_root start_epoch version viewport_width viewport_height
   plugin_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
   install_source=${THEME_MANAGER_INSTALL_SOURCE:-/tmp/omarchy-theme-manager}
   printf -v install_source_q '%q' "$install_source"
   start_epoch="$(date +%s)"
+  version=$(jq -r '.version' "$plugin_root/manifest.json")
 
   qmp_pointer_park() {
     local width="$1" height="$2" x="${3:-4}" y="${4:-4}" qx qy response
@@ -53,14 +54,14 @@ omarchy_host_test() {
 
   ssh_session "omarchy-plugin-add $install_source_q --enable --yes" \
     >"$RUN_DIR/theme-manager-marketing-install.log" || return 1
-  wait_for_guest_state "Theme Manager 0.5.16 is installed and loaded" 25 ssh_session \
+  wait_for_guest_state "Theme Manager $version is installed and loaded" 25 ssh_session \
     "omarchy-plugin-list --json | jq -e \
       'any(.[]; .id == \"io.github.mtolhuys.theme-manager\" and .enabled == true)' && \
-     jq -e '.version == \"0.5.16\" and \
+     jq -e '.version == \"$version\" and \
        .entryPoints.overlay == \"v0200/ImagePicker.qml\" and \
        .omarchy.clonedFrom == \"omarchy.image-picker\"' \
        \"\$HOME/.config/omarchy/plugins/io.github.mtolhuys.theme-manager/manifest.json\" && \
-     [[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"0.5.16\" ]]" || return 1
+     [[ \$(omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity '') == \"$version\" ]]" || return 1
 
   viewport_width="$(ssh_session "hyprctl -j monitors | jq -r '.[0].width'")" || return 1
   viewport_height="$(ssh_session "hyprctl -j monitors | jq -r '.[0].height'")" || return 1
