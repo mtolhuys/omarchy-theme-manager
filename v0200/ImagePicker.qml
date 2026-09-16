@@ -19,7 +19,7 @@ import "IconBrowseModel.js" as IconBrowseModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.6.5"
+  readonly property string buildIdentity: "0.6.6"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var manifest: null
@@ -285,6 +285,10 @@ Item {
       query: wallhavenMode || catalogMode ? filterText : "",
       filtersOpen: filterSheet.opened || catalogFilterSheet.opened,
       catalogInstallConfirmationOpen: themeCatalog.confirmationOpen,
+      catalogAction: themeCatalog.selectedStatus,
+      catalogCanInstall: themeCatalog.canInstallSelected,
+      catalogCanOpenSource: themeCatalog.canOpenSelectedSource,
+      catalogError: themeCatalog.errorMessage,
       favoriteCount: favoriteIds.length,
       currentFavorite: currentFavorite,
       favoritesOnly: favoritesOnly,
@@ -1717,7 +1721,7 @@ Item {
 
   function applySelected() {
     if (catalogMode) {
-      themeCatalog.requestInstall()
+      themeCatalog.requestPrimaryAction()
       return
     }
 
@@ -2383,6 +2387,9 @@ Item {
     selectedEntry: root.catalogMode ? root.currentItem() : null
     onCatalogLoaded: function(rows) { root.enterCatalog(rows) }
     onThemeInstalled: root.cancel()
+    onSourceRequested: function(repositoryUrl) {
+      Util.execArgv(["xdg-open", repositoryUrl])
+    }
     onFocusRequested: Qt.callLater(root.focusPicker)
   }
 
@@ -3602,23 +3609,25 @@ Item {
         Button {
           id: catalogReviewButton
           visible: root.catalogMode
-          enabled: themeCatalog.canInstallSelected
+          enabled: themeCatalog.canActivateSelected
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
           text: themeCatalog.selectedStatus
           tooltipText: {
             const item = themeCatalog.selectedEntry
             if (!item) return ""
+            if (themeCatalog.canOpenSelectedSource)
+              return "Open the repository; Install returns immediately afterward"
             if (item.installed) return "This theme is already installed"
             if (item.stockConflict) return "A built-in theme already uses this name"
             return "Install a sanitized exact snapshot (Enter)"
           }
-          foreground: themeCatalog.canInstallSelected ? Color.accent : Color.muted
+          foreground: themeCatalog.canActivateSelected ? Color.accent : Color.muted
           accent: Color.accent
           bordered: true
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
-          onClicked: themeCatalog.requestInstall()
+          onClicked: themeCatalog.requestPrimaryAction()
         }
       }
 

@@ -21,22 +21,35 @@ Item {
   property string catalogStderr: ""
   property string installStderr: ""
   property string errorMessage: ""
+  property string sourceFallbackRepository: ""
+
+  readonly property int temporaryFailureExitCode: 75
 
   readonly property bool canInstallSelected: !!selectedEntry
     && selectedEntry.canInstall === true
     && !busy
+  readonly property bool canOpenSelectedSource: !!selectedEntry
+    && String(selectedEntry.repositoryUrl || "") === sourceFallbackRepository
+    && !busy
+  readonly property bool canActivateSelected: canOpenSelectedSource || canInstallSelected
   readonly property string selectedStatus: busy
     ? "Installing…"
-    : (selectedEntry ? String(selectedEntry.status || "Install") : "Install")
+    : (canOpenSelectedSource
+        ? "View source"
+        : (selectedEntry ? String(selectedEntry.status || "Install") : "Install"))
   readonly property string confirmationMessage:
     ThemeCatalogModel.installConfirmationMessage(pendingEntry)
 
   signal catalogLoaded(var rows)
   signal themeInstalled(string name)
+  signal sourceRequested(string repositoryUrl)
   signal focusRequested()
 
   onPickerOpenChanged: if (!pickerOpen) resetTransientState()
-  onSelectedEntryChanged: if (!busy) errorMessage = ""
+  onSelectedEntryChanged: if (!busy) {
+    errorMessage = ""
+    sourceFallbackRepository = ""
+  }
   onInstalledThemesChanged: rebuildRows(false)
   onStockThemesChanged: rebuildRows(false)
   onInstalledRepositoriesChanged: rebuildRows(false)
@@ -45,6 +58,7 @@ Item {
     confirmationOpen = false
     pendingEntry = null
     errorMessage = ""
+    sourceFallbackRepository = ""
   }
 
   function inventory() {
@@ -75,6 +89,18 @@ Item {
     if (!canInstallSelected) return
     pendingEntry = selectedEntry
     confirmationOpen = true
+  }
+
+  function requestPrimaryAction() {
+    if (canOpenSelectedSource) {
+      const repositoryUrl = sourceFallbackRepository
+      sourceFallbackRepository = ""
+      errorMessage = ""
+      sourceRequested(repositoryUrl)
+      focusRequested()
+      return
+    }
+    requestInstall()
   }
 
   function cancelInstall() {
@@ -159,7 +185,16 @@ Item {
 
       if (exitCode === 0 && installedEntry) {
         root.themeInstalled(installedEntry.installSlug)
+      } else if (installedEntry !== root.selectedEntry) {
+        root.errorMessage = ""
+        root.sourceFallbackRepository = ""
+        root.focusRequested()
+      } else if (exitCode === root.temporaryFailureExitCode && installedEntry) {
+        root.sourceFallbackRepository = String(installedEntry.repositoryUrl || "")
+        root.errorMessage = "GitHub rate limit reached — view the source or retry shortly"
+        root.focusRequested()
       } else {
+        root.sourceFallbackRepository = ""
         root.errorMessage = root.installStderr
           || "Could not install " + (installedEntry ? installedEntry.displayName : "the theme")
         root.focusRequested()

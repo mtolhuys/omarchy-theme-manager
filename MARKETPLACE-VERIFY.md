@@ -37,11 +37,14 @@ Maintainer notes (not required by form):
   unknown files are excluded before `omarchy theme install` is called
 - `omakit verify` reports no findings; the expected `installer` capability
   requires maintainer review
-- Version 0.6.5 fixes the catalog/search crash path by replacing the unbounded
+- Version 0.6.6 includes the catalog/search crash fix, replacing the unbounded
   GPU-backed QML Repeater with a reusable 17-delegate pool (15 visible), building
   one fuzzy-search index per query, and pre-indexing catalog search metadata
 - Wallpaper navigation now debounces stale palette work and caches 24 recent
   palettes instead of immediately chaining ImageMagick work while moving
+- A confirmed GitHub public API rate limit now returns a typed temporary-failure
+  status. The picker offers **View source** for that normalized repository and
+  immediately restores **Install** after opening it or changing selection
 - Exact-candidate local quality and marketplace checks must be rerun after the
   release commit; focused disposable Omarchy 4.0.3 evidence is recorded in the
   issue update

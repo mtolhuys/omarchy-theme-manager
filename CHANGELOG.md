@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.6 - 2026-09-16
+
+- Treat a confirmed GitHub API rate limit as a temporary install failure instead
+  of exposing the raw HTTP exception.
+- Offer a one-shot **View source** action for the affected catalog theme. The
+  normalized repository URL opens through a literal argv call, and the action
+  immediately returns to **Install** after opening or when selection changes.
+- Keep unrelated HTTP and installation failures on the ordinary error path, so
+  the source fallback never masks a local collision or another real failure.
+
 ## 0.6.5 - 2026-09-16
 
 - Address marketplace issue #5344: replace remote partial Git clones and lazy
