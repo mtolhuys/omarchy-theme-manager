@@ -77,90 +77,91 @@ const installArguments = (scriptPath, contentId) => {
   return [script, "install", id]
 }
 
+const plainText = (value, maximumLength) =>
+  stringValue(value)
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .trim()
+    .slice(0, maximumLength)
+
+const iconDownloadFields = (item) => ({
+  version: stringValue(item.version).slice(0, 40),
+  personid: stringValue(item.personid).slice(0, 80),
+  downloads: integerValue(item.downloads),
+  score: integerValue(item.score),
+  downloadName: stringValue(item.downloadName || item.downloadname1).slice(0, 160),
+  downloadSize: integerValue(item.downloadSize || item.downloadsize1)
+})
+
 const iconRow = (item) => {
   if (!item || typeof item !== "object") return null
   const id = stringValue(item.id)
-  if (!contentIdPattern.test(id)) return null
+  const name = plainText(item.name, 160)
+  if (!contentIdPattern.test(id) || !name) return null
+  const fields = iconDownloadFields(item)
+  const summary = plainText(item.summary, 280)
+  return Object.assign(
+    {
+      id,
+      filePath: "ocs-icons:" + id,
+      fileName: "ocs-icons-" + id,
+      thumbnailPath: safePreviewUrl(item.previewUrl || item.previewpic1),
+      displayName: name,
+      summary
+    },
+    fields,
+    { ocsIcon: true, searchText: [name, summary, fields.personid, id].filter(Boolean).join(" ") }
+  )
+}
 
-  const name = stringValue(item.name)
-    .replace(/[\u0000-\u001f\u007f]/g, " ")
-    .trim()
-    .slice(0, 160)
-  if (!name) return null
-
-  const summary = stringValue(item.summary)
-    .replace(/[\u0000-\u001f\u007f]/g, " ")
-    .trim()
-    .slice(0, 280)
-  const version = stringValue(item.version).slice(0, 40)
-  const personid = stringValue(item.personid).slice(0, 80)
-  const downloads = integerValue(item.downloads)
-  const score = integerValue(item.score)
-  const previewUrl = safePreviewUrl(item.previewUrl || item.previewpic1)
-  const downloadName = stringValue(item.downloadName || item.downloadname1).slice(0, 160)
-  const downloadSize = integerValue(item.downloadSize || item.downloadsize1)
-
-  return {
-    id,
-    filePath: "ocs-icons:" + id,
-    fileName: "ocs-icons-" + id,
-    thumbnailPath: previewUrl,
-    displayName: name,
-    summary,
-    version,
-    personid,
-    downloads,
-    score,
-    downloadName,
-    downloadSize,
-    ocsIcon: true,
-    searchText: [name, summary, personid, id].filter(Boolean).join(" ")
+const parsedJson = (text) => {
+  try {
+    return { payload: JSON.parse(text) }
+  } catch (_error) {
+    return { payload: null, invalid: true }
   }
 }
 
-const parseSearchResponse = (text) => {
-  const responseText = stringValue(text)
-  if (responseText.length > maxSearchResponseLength) {
-    return { error: "Icon catalog returned an oversized response", rows: [], meta: {} }
-  }
+const searchFailure = (error) => ({ error, rows: [], meta: {} })
 
-  let payload
-  try {
-    payload = JSON.parse(responseText)
-  } catch (_error) {
-    return { error: "Icon catalog returned invalid JSON", rows: [], meta: {} }
-  }
-
+// The first thing wrong with a search payload, or "" when it can be read.
+const searchPayloadError = (responseText, parsed) => {
+  if (responseText.length > maxSearchResponseLength)
+    return "Icon catalog returned an oversized response"
+  if (parsed.invalid) return "Icon catalog returned invalid JSON"
+  const payload = parsed.payload
   if (!payload || typeof payload !== "object" || !Array.isArray(payload.items)) {
-    return { error: "Icon catalog returned an incomplete response", rows: [], meta: {} }
+    return "Icon catalog returned an incomplete response"
   }
-  if (payload.items.length > 48) {
-    return { error: "Icon catalog returned too many records", rows: [], meta: {} }
-  }
+  if (payload.items.length > 48) return "Icon catalog returned too many records"
+  return ""
+}
 
+const uniqueIconRows = (items) => {
   const seen = {}
-  const rows = payload.items.reduce((result, item) => {
+  return items.reduce((result, item) => {
     const row = iconRow(item)
     if (!row || seen[row.id]) return result
     seen[row.id] = true
     result.push(row)
     return result
   }, [])
+}
 
+const searchMeta = (payload, rows) => {
   const page = integerValue(payload.page)
   const pagesize = Math.max(1, integerValue(payload.pagesize, defaultPageSize) || defaultPageSize)
   const total = integerValue(payload.totalitems)
+  return { page, pagesize, total, hasMore: (page + 1) * pagesize < total && rows.length > 0 }
+}
 
-  return {
-    error: "",
-    rows,
-    meta: {
-      page,
-      pagesize,
-      total,
-      hasMore: (page + 1) * pagesize < total && rows.length > 0
-    }
-  }
+const parseSearchResponse = (text) => {
+  const responseText = stringValue(text)
+  const parsed =
+    responseText.length > maxSearchResponseLength ? { payload: null } : parsedJson(responseText)
+  const error = searchPayloadError(responseText, parsed)
+  if (error) return searchFailure(error)
+  const rows = uniqueIconRows(parsed.payload.items)
+  return { error: "", rows, meta: searchMeta(parsed.payload, rows) }
 }
 
 const appendUniqueRows = (existingRows, incomingRows) => {
@@ -178,38 +179,41 @@ const appendUniqueRows = (existingRows, incomingRows) => {
   return combined
 }
 
+const installFailure = (error) => ({ error, themeName: "", themeNames: [] })
+
+const installedThemeNames = (payload) =>
+  Array.isArray(payload && payload.themeNames)
+    ? payload.themeNames.map((name) => stringValue(name).trim()).filter(Boolean)
+    : []
+
 const parseInstallResponse = (text) => {
   const responseText = stringValue(text)
   if (responseText.length > maxInstallResponseLength) {
-    return { error: "Icon install returned an oversized response", themeName: "", themeNames: [] }
+    return installFailure("Icon install returned an oversized response")
   }
+  const parsed = parsedJson(responseText)
+  if (parsed.invalid) return installFailure("Icon install returned invalid JSON")
 
-  let payload
-  try {
-    payload = JSON.parse(responseText)
-  } catch (_error) {
-    return { error: "Icon install returned invalid JSON", themeName: "", themeNames: [] }
-  }
-
-  const themeNames = Array.isArray(payload && payload.themeNames)
-    ? payload.themeNames.map((name) => stringValue(name).trim()).filter(Boolean)
-    : []
+  const payload = parsed.payload
+  const themeNames = installedThemeNames(payload)
   const themeName = stringValue(payload && payload.themeName).trim() || themeNames[0] || ""
-  if (!themeName) {
-    return { error: "Icon install did not report a theme name", themeName: "", themeNames: [] }
-  }
-
+  if (!themeName) return installFailure("Icon install did not report a theme name")
   return { error: "", themeName, themeNames, iconsRoot: stringValue(payload.iconsRoot) }
 }
 
-const installConfirmationMessage = (entry) => {
-  if (!entry) return "Install this icon theme from the internet?"
+const installConfirmationLines = (entry) => {
   const name = stringValue(entry.displayName || entry.name || "this icon theme").slice(0, 120)
   const file = stringValue(entry.downloadName).slice(0, 80)
   const parts = [`Download and install “${name}” into ~/.local/share/icons?`]
   if (file) parts.push(`Archive: ${file}`)
-  parts.push("Only continue if you trust this Pling / gnome-look.org package.")
-  return parts.join("\n")
+  return parts
+}
+
+const installConfirmationMessage = (entry) => {
+  if (!entry) return "Install this icon theme from the internet?"
+  return installConfirmationLines(entry)
+    .concat(["Only continue if you trust this Pling / gnome-look.org package."])
+    .join("\n")
 }
 
 const errorFromStderr = (stderr, fallback) => {

@@ -57,27 +57,36 @@ def open_or_create_child(parent_fd, name, label):
     return fd
 
 
-def open_cache_directory():
+def cache_home_paths():
     home = os.environ.get("HOME", "")
     cache_home = os.environ.get("XDG_CACHE_HOME", os.path.join(home, ".cache"))
     if not home or not os.path.isabs(home) or not os.path.isabs(cache_home):
         fail("HOME and XDG_CACHE_HOME must be absolute")
-
     home_normal = os.path.normpath(home)
     cache_normal = os.path.normpath(cache_home)
     if os.path.commonpath([home_normal, cache_normal]) != home_normal:
         fail("XDG_CACHE_HOME must be inside HOME")
+    return home_normal, cache_normal
 
+
+def cache_path_components(home_normal, cache_normal):
+    relative_cache = os.path.relpath(cache_normal, home_normal)
+    if relative_cache == ".":
+        return []
+    components = relative_cache.split(os.sep)
+    if any(component in {"", ".", ".."} for component in components):
+        fail("Invalid cache directory")
+    return components
+
+
+def open_cache_directory():
+    """Open the theme catalog cache below HOME, appending every descriptor on the way."""
+    home_normal, cache_normal = cache_home_paths()
     directory_fds = [open_owned_directory(home_normal, "HOME")]
     parent_fd = directory_fds[0]
-    relative_cache = os.path.relpath(cache_normal, home_normal)
-    if relative_cache != ".":
-        for component in relative_cache.split(os.sep):
-            if component in {"", ".", ".."}:
-                fail("Invalid cache directory")
-            parent_fd = open_or_create_child(parent_fd, component, "cache directory")
-            directory_fds.append(parent_fd)
-
+    for component in cache_path_components(home_normal, cache_normal):
+        parent_fd = open_or_create_child(parent_fd, component, "cache directory")
+        directory_fds.append(parent_fd)
     cache_fd = open_or_create_child(parent_fd, "omarchy-theme-manager", "theme catalog cache")
     directory_fds.append(cache_fd)
     return cache_fd, directory_fds
@@ -158,48 +167,55 @@ def create_staging_file(cache_fd):
     fail("Could not create an exclusive cache staging file")
 
 
+def curl_command(url, maximum, output_fd):
+    return [
+        "curl",
+        "--fail",
+        "--location",
+        "--silent",
+        "--show-error",
+        "--proto",
+        "=https",
+        "--max-filesize",
+        str(maximum),
+        "--connect-timeout",
+        "10",
+        "--max-time",
+        "45",
+        "--output",
+        f"/proc/self/fd/{output_fd}",
+        url,
+    ]
+
+
+def fetch_into(temporary_fd, url, maximum):
+    command = curl_command(url, maximum, temporary_fd)
+    result = subprocess.run(command, pass_fds=(temporary_fd,), check=False)
+    if result.returncode != 0:
+        fail(f"Download failed: {url}")
+
+
+def remove_staging_file(cache_fd, temporary_name):
+    try:
+        os.unlink(temporary_name, dir_fd=cache_fd)
+    except FileNotFoundError:
+        pass
+
+
 def download(cache_fd, name, url, maximum, validator):
     temporary_name, temporary_fd = create_staging_file(cache_fd)
     try:
-        command = [
-            "curl",
-            "--fail",
-            "--location",
-            "--silent",
-            "--show-error",
-            "--proto",
-            "=https",
-            "--max-filesize",
-            str(maximum),
-            "--connect-timeout",
-            "10",
-            "--max-time",
-            "45",
-            "--output",
-            f"/proc/self/fd/{temporary_fd}",
-            url,
-        ]
-        result = subprocess.run(command, pass_fds=(temporary_fd,), check=False)
-        if result.returncode != 0:
-            fail(f"Download failed: {url}")
+        fetch_into(temporary_fd, url, maximum)
         value = validator(read_fd(temporary_fd, maximum))
         os.fsync(temporary_fd)
-        os.replace(
-            temporary_name,
-            name,
-            src_dir_fd=cache_fd,
-            dst_dir_fd=cache_fd,
-        )
+        os.replace(temporary_name, name, src_dir_fd=cache_fd, dst_dir_fd=cache_fd)
         temporary_name = ""
         os.fsync(cache_fd)
         return value
     finally:
         os.close(temporary_fd)
         if temporary_name:
-            try:
-                os.unlink(temporary_name, dir_fd=cache_fd)
-            except FileNotFoundError:
-                pass
+            remove_staging_file(cache_fd, temporary_name)
 
 
 def refresh(cache_fd, name, url, maximum, validator, max_age, force):
@@ -232,40 +248,43 @@ def bounded_number(value):
     return value if math.isfinite(value) else 0
 
 
-def render(catalog, official_repositories):
+def official_repository_list(official_repositories):
     deduplicated = {}
     for repository in official_repositories:
         normalized = repository.removesuffix(".git").rstrip("/")
         if normalized == "https://github.com/omacom-io/omarchy-site":
             continue
         deduplicated.setdefault(normalized.casefold(), normalized)
+    return sorted(deduplicated.values(), key=str.casefold)[:OFFICIAL_MAX_ITEMS]
 
-    themes = []
-    for entry in catalog[:CATALOG_MAX_ITEMS]:
-        if entry.get("is_builtin") == 1:
-            continue
-        themes.append(
-            {
-                "name": bounded_string(entry.get("name"), 120),
-                "repositoryUrl": bounded_string(
-                    entry.get("canonical_github_url") or entry.get("github_url"), 512
-                ),
-                "owner": bounded_string(entry.get("github_owner"), 80),
-                "description": bounded_string(entry.get("description"), 500),
-                "stars": bounded_number(entry.get("stars")),
-                "apps": bounded_string(entry.get("apps_json"), 4096),
-                "securityWarnings": bounded_string(entry.get("security_warnings"), 8192),
-                "previewUrl": bounded_string(entry.get("preview_url"), 512),
-            }
-        )
 
+def theme_row(entry):
+    return {
+        "name": bounded_string(entry.get("name"), 120),
+        "repositoryUrl": bounded_string(
+            entry.get("canonical_github_url") or entry.get("github_url"), 512
+        ),
+        "owner": bounded_string(entry.get("github_owner"), 80),
+        "description": bounded_string(entry.get("description"), 500),
+        "stars": bounded_number(entry.get("stars")),
+        "apps": bounded_string(entry.get("apps_json"), 4096),
+        "securityWarnings": bounded_string(entry.get("security_warnings"), 8192),
+        "previewUrl": bounded_string(entry.get("preview_url"), 512),
+    }
+
+
+def theme_rows(catalog):
+    return [
+        theme_row(entry) for entry in catalog[:CATALOG_MAX_ITEMS] if entry.get("is_builtin") != 1
+    ]
+
+
+def render(catalog, official_repositories):
     output = {
         "sourceUrl": "https://omarchytheme.com/",
         "fetchedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "officialRepositories": sorted(deduplicated.values(), key=str.casefold)[
-            :OFFICIAL_MAX_ITEMS
-        ],
-        "themes": themes,
+        "officialRepositories": official_repository_list(official_repositories),
+        "themes": theme_rows(catalog),
     }
     encoded = json.dumps(output, ensure_ascii=False, separators=(",", ":")).encode()
     if len(encoded) > OUTPUT_MAX_BYTES:
@@ -273,38 +292,43 @@ def render(catalog, official_repositories):
     return encoded
 
 
-def main():
-    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] != "--refresh"):
+def parse_arguments(argv):
+    """The (max_age, force) pair from argv and the environment, or None with the usage error printed."""
+    if len(argv) > 2 or (len(argv) == 2 and argv[1] != "--refresh"):
         print("Usage: catalog-cache.py [--refresh]", file=sys.stderr)
-        return 2
+        return None
     raw_max_age = os.environ.get("OMARCHY_THEME_CATALOG_MAX_AGE", "21600")
     if not raw_max_age.isdigit():
         print("OMARCHY_THEME_CATALOG_MAX_AGE must be a non-negative integer.", file=sys.stderr)
-        return 2
+        return None
+    return int(raw_max_age), len(argv) == 2
 
+
+def render_catalog(cache_fd, max_age, force):
+    catalog = refresh(
+        cache_fd, "themes-data.json", CATALOG_URL, CATALOG_MAX_BYTES, validate_catalog, max_age, force
+    )
+    official = refresh(
+        cache_fd,
+        "official-themes.html",
+        OFFICIAL_URL,
+        OFFICIAL_MAX_BYTES,
+        validate_official,
+        max_age,
+        force,
+    )
+    return render(catalog, official)
+
+
+def main():
+    arguments = parse_arguments(sys.argv)
+    if arguments is None:
+        return 2
+    max_age, force = arguments
     directory_fds = []
     try:
         cache_fd, directory_fds = open_cache_directory()
-        force = len(sys.argv) == 2
-        catalog = refresh(
-            cache_fd,
-            "themes-data.json",
-            CATALOG_URL,
-            CATALOG_MAX_BYTES,
-            validate_catalog,
-            int(raw_max_age),
-            force,
-        )
-        official = refresh(
-            cache_fd,
-            "official-themes.html",
-            OFFICIAL_URL,
-            OFFICIAL_MAX_BYTES,
-            validate_official,
-            int(raw_max_age),
-            force,
-        )
-        sys.stdout.buffer.write(render(catalog, official) + b"\n")
+        sys.stdout.buffer.write(render_catalog(cache_fd, max_age, force) + b"\n")
         return 0
     except (OSError, RuntimeError, UnicodeError, json.JSONDecodeError) as error:
         print(str(error), file=sys.stderr)

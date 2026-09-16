@@ -158,7 +158,7 @@ class DownloadTests(unittest.TestCase):
         argv = ["install-theme.py", "https://github.com/example/omarchy-safe-theme"]
         with patch.object(sys, "argv", argv), patch.object(
             installer,
-            "Snapshot",
+            "install",
             side_effect=installer.GitHubRateLimitError("GitHub download rate limit reached"),
         ), patch("sys.stderr", new_callable=io.StringIO) as stderr:
             self.assertEqual(installer.main(), installer.TEMPORARY_FAILURE)
