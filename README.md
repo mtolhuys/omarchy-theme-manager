@@ -140,8 +140,11 @@ other upstream content are excluded before Omarchy sees the theme. The exact
 source commit is recorded in the installed theme. A catalog badge is not a
 security endorsement.
 
-Installation requires public GitHub API access; API errors or rate limits stop
-the install without invoking Omarchy. No GitHub credentials are requested.
+Installation requires public GitHub API access. API errors stop the install
+without invoking Omarchy. When GitHub's public rate limit is exhausted, the
+picker offers a one-shot **View source** fallback and immediately restores
+**Install** afterward so the user can retry later. No GitHub credentials are
+requested.
 
 Wallpapers: only Aether and Omarchy picker helpers; capped streaming output;
 validated ids; previews from Aether's thumbnail cache; downloads from Aether's
@@ -167,6 +170,7 @@ Acceptance testing belongs in the disposable plugin lab:
 cd ~/Projects/omarchy/plugin-lab
 ./bin/lab plugin ~/Projects/plugins/omarchy-theme-manager/tests/lab/acceptance.sh
 ./bin/lab plugin ~/Projects/plugins/omarchy-theme-manager/tests/lab/performance.sh
+./bin/lab plugin ~/Projects/plugins/omarchy-theme-manager/tests/lab/rate-limit-fallback.sh
 ./bin/lab plugin ~/Projects/plugins/omarchy-theme-manager/tests/lab/marketing-preview.sh
 ```
 

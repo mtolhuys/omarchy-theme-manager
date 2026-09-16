@@ -5,6 +5,7 @@ import io
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -39,6 +40,14 @@ class Opener:
     def open(self, request, timeout):
         self.calls += 1
         return self.response
+
+
+class ErrorOpener:
+    def __init__(self, error):
+        self.error = error
+
+    def open(self, request, timeout):
+        raise self.error
 
 
 class DownloadTests(unittest.TestCase):
@@ -106,6 +115,37 @@ class DownloadTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "budget"):
             downloader.read(URL, 100)
         self.assertEqual(downloader.opener.calls, 0)
+
+    def test_github_rate_limit_has_a_typed_temporary_failure(self):
+        error = urllib.error.HTTPError(
+            URL,
+            403,
+            "rate limit exceeded",
+            {"X-RateLimit-Remaining": "0"},
+            None,
+        )
+        downloader = installer.Downloader()
+        downloader.opener = ErrorOpener(error)
+        with self.assertRaisesRegex(installer.GitHubRateLimitError, "rate limit"):
+            downloader.read(URL, 100)
+
+    def test_other_http_errors_remain_normal_install_failures(self):
+        error = urllib.error.HTTPError(URL, 403, "Forbidden", {}, None)
+        self.addCleanup(error.close)
+        downloader = installer.Downloader()
+        downloader.opener = ErrorOpener(error)
+        with self.assertRaises(urllib.error.HTTPError):
+            downloader.read(URL, 100)
+
+    def test_rate_limit_main_exit_is_ex_tempfail(self):
+        argv = ["install-theme.py", "https://github.com/example/omarchy-safe-theme"]
+        with patch.object(sys, "argv", argv), patch.object(
+            installer,
+            "Snapshot",
+            side_effect=installer.GitHubRateLimitError("GitHub public API rate limit reached"),
+        ), patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            self.assertEqual(installer.main(), installer.TEMPORARY_FAILURE)
+        self.assertIn("retry later", stderr.getvalue())
 
     def test_trickled_response_checks_deadline_after_each_read(self):
         response = Response(b"a" * 100)

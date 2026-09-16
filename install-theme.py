@@ -25,6 +25,7 @@ MAX_COMMIT_BYTES = 64 * 1024
 MAX_DOWNLOAD_BYTES = MAX_IMAGE_TOTAL_BYTES + 2 * MAX_TREE_LIST_BYTES + MAX_COMMIT_BYTES + MAX_PALETTE_BYTES
 DOWNLOAD_SECONDS = 60
 SOCKET_TIMEOUT_SECONDS = 10
+TEMPORARY_FAILURE = 75
 SAFE_SHA = re.compile(r"^[0-9a-f]{40}$")
 SAFE_COLOR_VALUE = re.compile(r"^[A-Za-z0-9#(),._+/% -]{1,128}$")
 SAFE_REPOSITORY = re.compile(
@@ -79,6 +80,19 @@ NORMAL_NAMES = ("black", "red", "green", "yellow", "blue", "magenta", "cyan", "w
 
 def fail(message):
     raise RuntimeError(message)
+
+
+class GitHubRateLimitError(RuntimeError):
+    """The public GitHub API asked this unauthenticated client to wait."""
+
+
+def github_rate_limited(error):
+    if not isinstance(error, urllib.error.HTTPError) or error.code not in {403, 429}:
+        return False
+    headers = error.headers or {}
+    remaining = str(headers.get("X-RateLimit-Remaining", "")).strip()
+    reason = str(error.reason or "").casefold()
+    return error.code == 429 or remaining == "0" or "rate limit" in reason
 
 
 def normalize_repository(value):
@@ -275,7 +289,14 @@ class Downloader:
             "X-GitHub-Api-Version": "2022-11-28",
         })
         timeout = min(SOCKET_TIMEOUT_SECONDS, self.deadline - time.monotonic())
-        with self.opener.open(request, timeout=max(0.001, timeout)) as response:
+        try:
+            response = self.opener.open(request, timeout=max(0.001, timeout))
+        except urllib.error.HTTPError as error:
+            if github_rate_limited(error):
+                error.close()
+                raise GitHubRateLimitError("GitHub public API rate limit reached") from None
+            raise
+        with response:
             if response.status != 200:
                 fail("Theme download did not return a complete response")
             if response.headers.get("Content-Encoding", "identity").lower() != "identity":
@@ -417,6 +438,15 @@ def main():
             run(["omarchy", "theme", "install", safe.as_uri()])
         print(slug)
         return 0
+    except GitHubRateLimitError as error:
+        print(f"Theme install paused: {error}; retry later", file=sys.stderr)
+        return TEMPORARY_FAILURE
+    except urllib.error.HTTPError as error:
+        try:
+            print(f"Theme install failed: {error}", file=sys.stderr)
+        finally:
+            error.close()
+        return 1
     except (OSError, RuntimeError, UnicodeError, ValueError, tomllib.TOMLDecodeError, subprocess.SubprocessError, urllib.error.URLError) as error:
         print(f"Theme install failed: {error}", file=sys.stderr)
         return 1
