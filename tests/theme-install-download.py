@@ -3,6 +3,7 @@
 import importlib.util
 import io
 import sys
+import tarfile
 import tempfile
 import unittest
 import urllib.error
@@ -13,7 +14,23 @@ sys.dont_write_bytecode = True
 spec = importlib.util.spec_from_file_location("installer", Path(__file__).resolve().parents[1] / "install-theme.py")
 installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
-URL = "https://raw.githubusercontent.com/example/theme/" + "a" * 40 + "/colors.toml"
+URL = "https://codeload.github.com/example/theme/tar.gz/" + "a" * 40
+REF_URL = "https://github.com/example/theme.git/info/refs?service=git-upload-pack"
+SHA = "a" * 40
+
+
+def packet(payload):
+    return f"{len(payload) + 4:04x}".encode("ascii") + payload
+
+
+def advertisement(sha=SHA):
+    return b"".join((
+        packet(b"# service=git-upload-pack\n"),
+        b"0000",
+        packet(f"{sha} HEAD\0symref=HEAD:refs/heads/main\n".encode("ascii")),
+        packet(f"{sha} refs/heads/main\n".encode("ascii")),
+        b"0000",
+    ))
 
 
 class Response(io.BytesIO):
@@ -92,13 +109,13 @@ class DownloadTests(unittest.TestCase):
 
     def test_compressed_response_is_rejected_without_body_read(self):
         response = Response(b"compressed", {"Content-Encoding": "gzip"})
-        with self.assertRaisesRegex(RuntimeError, "Compressed"):
+        with self.assertRaisesRegex(RuntimeError, "content encoding"):
             self.downloader(response).read(URL, 100)
         self.assertEqual(response.consumed, 0)
 
     def test_nonallowlisted_host_is_rejected_before_open(self):
         downloader = self.downloader(Response(b""))
-        for url in ("http://api.github.com/", "https://api.github.com.evil/", "https://user@api.github.com/"):
+        for url in ("http://github.com/", "https://github.com.evil/", "https://user@github.com/"):
             with self.assertRaisesRegex(RuntimeError, "host"):
                 downloader.read(url, 10)
         self.assertEqual(downloader.opener.calls, 0)
@@ -142,7 +159,7 @@ class DownloadTests(unittest.TestCase):
         with patch.object(sys, "argv", argv), patch.object(
             installer,
             "Snapshot",
-            side_effect=installer.GitHubRateLimitError("GitHub public API rate limit reached"),
+            side_effect=installer.GitHubRateLimitError("GitHub download rate limit reached"),
         ), patch("sys.stderr", new_callable=io.StringIO) as stderr:
             self.assertEqual(installer.main(), installer.TEMPORARY_FAILURE)
         self.assertIn("retry later", stderr.getvalue())
@@ -178,6 +195,80 @@ class DownloadTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "Oversized"):
                     installer.copy_images(snapshot, Path(directory))
         self.assertEqual(snapshot.limits[-1], ("backgrounds/two.png", 2))
+
+    def test_git_advertisement_resolves_one_exact_head(self):
+        self.assertEqual(installer.advertised_head(advertisement()), SHA)
+
+    def test_git_advertisement_rejects_truncation_and_duplicate_head(self):
+        with self.assertRaisesRegex(RuntimeError, "(?:Incomplete|Invalid)"):
+            installer.advertised_head(advertisement()[:-2])
+        duplicate = advertisement()[:-4] + packet(f"{SHA} HEAD\n".encode("ascii")) + b"0000"
+        with self.assertRaisesRegex(RuntimeError, "HEAD"):
+            installer.advertised_head(duplicate)
+
+    def test_git_advertisement_requires_upload_pack_service(self):
+        body = packet(f"{SHA} HEAD\n".encode("ascii")) + b"0000"
+        with self.assertRaisesRegex(RuntimeError, "exact commit"):
+            installer.advertised_head(body)
+
+    def write_archive(self, path, root, entries):
+        with tarfile.open(path, "w:gz") as archive:
+            directory = tarfile.TarInfo(root + "/")
+            directory.type = tarfile.DIRTYPE
+            archive.addfile(directory)
+            for name, data, kind in entries:
+                member = tarfile.TarInfo(f"{root}/{name}")
+                if kind == "file":
+                    member.size = len(data)
+                    archive.addfile(member, io.BytesIO(data))
+                elif kind == "symlink":
+                    member.type = tarfile.SYMTYPE
+                    member.linkname = data.decode("utf-8")
+                    archive.addfile(member)
+
+    def snapshot_for_archive(self):
+        snapshot = installer.Snapshot.__new__(installer.Snapshot)
+        snapshot.name = "theme"
+        snapshot.commit = SHA
+        snapshot.downloader = type("State", (), {"deadline": float("inf")})()
+        return snapshot
+
+    def test_archive_rejects_selected_symlink(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "snapshot.tar.gz"
+            self.write_archive(archive, f"theme-{SHA}", [("colors.toml", b"target", "symlink")])
+            with self.assertRaisesRegex(RuntimeError, "regular file"):
+                self.snapshot_for_archive().inventory(archive)
+
+    def test_archive_rejects_wrong_commit_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "snapshot.tar.gz"
+            self.write_archive(archive, "theme-wrong", [("colors.toml", b"x", "file")])
+            with self.assertRaisesRegex(RuntimeError, "invalid path"):
+                self.snapshot_for_archive().inventory(archive)
+
+    def test_archive_accepts_only_a_case_variant_of_the_pinned_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "snapshot.tar.gz"
+            self.write_archive(archive, f"Theme-{SHA}", [("colors.toml", b"x", "file")])
+            entries = self.snapshot_for_archive().inventory(archive)
+            self.assertEqual(entries["colors.toml"]["size"], 1)
+
+    def test_archive_expanded_bytes_are_bounded_while_decompressing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "snapshot.tar.gz"
+            self.write_archive(archive, f"theme-{SHA}", [("ignored", b"x" * 4096, "file")])
+            with patch.object(installer, "MAX_ARCHIVE_EXPANDED_BYTES", 1024):
+                with self.assertRaisesRegex(RuntimeError, "expanded byte limit"):
+                    self.snapshot_for_archive().inventory(archive)
+
+    def test_archive_member_count_is_bounded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "snapshot.tar.gz"
+            self.write_archive(archive, f"theme-{SHA}", [("one", b"", "file")])
+            with patch.object(installer, "MAX_ARCHIVE_MEMBERS", 1):
+                with self.assertRaisesRegex(RuntimeError, "too many entries"):
+                    self.snapshot_for_archive().inventory(archive)
 
 
 if __name__ == "__main__":

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Install one exact, bundled theme snapshot through a data-only boundary."""
 
-import hashlib
+import gzip
 import json
 import os
 import re
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import tomllib
@@ -20,9 +21,12 @@ MAX_PALETTE_BYTES = 64 * 1024
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 MAX_IMAGE_TOTAL_BYTES = 80 * 1024 * 1024
 MAX_IMAGES = 16
-MAX_TREE_LIST_BYTES = 1024 * 1024
-MAX_COMMIT_BYTES = 64 * 1024
-MAX_DOWNLOAD_BYTES = MAX_IMAGE_TOTAL_BYTES + 2 * MAX_TREE_LIST_BYTES + MAX_COMMIT_BYTES + MAX_PALETTE_BYTES
+MAX_REF_ADVERTISEMENT_BYTES = 1024 * 1024
+MAX_ARCHIVE_BYTES = MAX_IMAGE_TOTAL_BYTES + 8 * 1024 * 1024
+MAX_ARCHIVE_EXPANDED_BYTES = 160 * 1024 * 1024
+MAX_ARCHIVE_MEMBERS = 4096
+MAX_ARCHIVE_PATH_BYTES = 4096
+MAX_DOWNLOAD_BYTES = MAX_REF_ADVERTISEMENT_BYTES + MAX_ARCHIVE_BYTES
 DOWNLOAD_SECONDS = 60
 SOCKET_TIMEOUT_SECONDS = 10
 TEMPORARY_FAILURE = 75
@@ -83,7 +87,7 @@ def fail(message):
 
 
 class GitHubRateLimitError(RuntimeError):
-    """The public GitHub API asked this unauthenticated client to wait."""
+    """A public GitHub endpoint asked this unauthenticated client to wait."""
 
 
 def github_rate_limited(error):
@@ -275,18 +279,17 @@ class Downloader:
         self.deadline = time.monotonic() + DOWNLOAD_SECONDS
         self.opener = urllib.request.build_opener(NoRedirects())
 
-    def read(self, url, maximum):
+    def open(self, url, maximum):
         parsed = urllib.parse.urlsplit(url)
-        if parsed.scheme != "https" or parsed.netloc not in {"api.github.com", "raw.githubusercontent.com"}:
+        if parsed.scheme != "https" or parsed.netloc not in {"github.com", "codeload.github.com"}:
             fail("Theme download host is not allowed")
         maximum = min(maximum, self.remaining)
         if maximum < 0 or time.monotonic() >= self.deadline:
             fail("Theme download budget exhausted")
         request = urllib.request.Request(url, headers={
-            "Accept": "application/vnd.github+json" if parsed.netloc == "api.github.com" else "application/octet-stream",
+            "Accept": "application/x-git-upload-pack-advertisement" if parsed.netloc == "github.com" else "application/octet-stream",
             "Accept-Encoding": "identity",
             "User-Agent": "Omarchy-Theme-Manager",
-            "X-GitHub-Api-Version": "2022-11-28",
         })
         timeout = min(SOCKET_TIMEOUT_SECONDS, self.deadline - time.monotonic())
         try:
@@ -294,107 +297,267 @@ class Downloader:
         except urllib.error.HTTPError as error:
             if github_rate_limited(error):
                 error.close()
-                raise GitHubRateLimitError("GitHub public API rate limit reached") from None
+                raise GitHubRateLimitError("GitHub download rate limit reached") from None
             raise
-        with response:
-            if response.status != 200:
-                fail("Theme download did not return a complete response")
-            if response.headers.get("Content-Encoding", "identity").lower() != "identity":
-                fail("Compressed theme responses are not allowed")
-            length = response.headers.get("Content-Length")
-            if length is not None and (not length.isdecimal() or int(length) > maximum):
+        if response.status != 200:
+            response.close()
+            fail("Theme download did not return a complete response")
+        if response.headers.get("Content-Encoding", "identity").lower() != "identity":
+            response.close()
+            fail("HTTP content encoding is not allowed")
+        length = response.headers.get("Content-Length")
+        if length is not None and (not length.isdecimal() or int(length) > maximum):
+            response.close()
+            fail("Theme download exceeds its byte limit")
+        return response, maximum, int(length) if length is not None else None
+
+    def chunks(self, response, maximum):
+        received = 0
+        while True:
+            if time.monotonic() >= self.deadline:
+                fail("Theme download timed out")
+            chunk = response.read1(min(64 * 1024, maximum - received + 1))
+            self.remaining -= len(chunk)
+            received += len(chunk)
+            if received > maximum:
                 fail("Theme download exceeds its byte limit")
+            if not chunk:
+                break
+            yield chunk
+
+    def read(self, url, maximum):
+        response, maximum, length = self.open(url, maximum)
+        with response:
             result = bytearray()
-            while True:
-                if time.monotonic() >= self.deadline:
-                    fail("Theme download timed out")
-                # read1 returns available bytes rather than waiting to fill a
-                # chunk, so trickled responses still reach the deadline check.
-                chunk = response.read1(min(64 * 1024, maximum - len(result) + 1))
-                self.remaining -= len(chunk)
-                if len(result) + len(chunk) > maximum:
-                    fail("Theme download exceeds its byte limit")
-                if not chunk:
-                    break
+            for chunk in self.chunks(response, maximum):
                 result.extend(chunk)
             if length is not None and len(result) != int(length):
                 fail("Theme download is incomplete")
             return bytes(result)
 
+    def download(self, url, maximum, destination):
+        response, maximum, length = self.open(url, maximum)
+        received = 0
+        with response, destination.open("xb") as output:
+            for chunk in self.chunks(response, maximum):
+                output.write(chunk)
+                received += len(chunk)
+        if length is not None and received != length:
+            fail("Theme download is incomplete")
+        return received
+
+
+class BoundedReader:
+    """Bound decompressed archive bytes and check the shared deadline."""
+
+    def __init__(self, stream, maximum, deadline):
+        self.stream = stream
+        self.maximum = maximum
+        self.deadline = deadline
+        self.received = 0
+
+    def read(self, size=-1):
+        if time.monotonic() >= self.deadline:
+            fail("Theme archive processing timed out")
+        remaining = self.maximum - self.received
+        if remaining < 0:
+            fail("Theme archive exceeds its expanded byte limit")
+        maximum = remaining + 1
+        if size < 0 or size > maximum:
+            size = maximum
+        data = self.stream.read(size)
+        self.received += len(data)
+        if self.received > self.maximum:
+            fail("Theme archive exceeds its expanded byte limit")
+        return data
+
+
+def packet_lines(data):
+    """Parse a complete Git pkt-line advertisement without accepting truncation."""
+
+    offset = 0
+    while offset < len(data):
+        if len(data) - offset < 4 or not re.fullmatch(rb"[0-9a-fA-F]{4}", data[offset:offset + 4]):
+            fail("Invalid Git reference advertisement")
+        length = int(data[offset:offset + 4], 16)
+        offset += 4
+        if length == 0:
+            yield b""
+            continue
+        if length < 4 or offset + length - 4 > len(data):
+            fail("Incomplete Git reference advertisement")
+        yield data[offset:offset + length - 4]
+        offset += length - 4
+
+
+def advertised_head(data):
+    head = ""
+    service_seen = False
+    for packet in packet_lines(data):
+        if packet == b"":
+            continue
+        if packet.startswith(b"# service="):
+            if packet != b"# service=git-upload-pack\n" or service_seen:
+                fail("Invalid Git reference service")
+            service_seen = True
+            continue
+        reference = packet.rstrip(b"\n").split(b"\0", 1)[0]
+        parts = reference.split(b" ", 1)
+        if len(parts) != 2 or parts[1] != b"HEAD":
+            continue
+        candidate = parts[0].decode("ascii")
+        if head or not SAFE_SHA.fullmatch(candidate):
+            fail("Invalid Git HEAD identity")
+        head = candidate
+    if not service_seen or not head:
+        fail("Downloaded theme does not resolve to an exact commit")
+    return head
+
 
 class Snapshot:
-    """Read only two nonrecursive trees and selected blobs at one commit."""
+    """Read selected regular files from one bounded, commit-pinned archive."""
 
-    def __init__(self, repository):
+    def __init__(self, repository, storage):
         self.downloader = Downloader()
         self.repository = repository.removeprefix("https://github.com/")
-        self.api = f"https://api.github.com/repos/{self.repository}"
-        commits = self.document(f"{self.api}/commits?per_page=1", MAX_COMMIT_BYTES)
-        if not isinstance(commits, list) or len(commits) != 1 or not isinstance(commits[0], dict):
-            fail("Downloaded theme does not resolve to an exact commit")
-        latest = commits[0]
-        self.commit = latest.get("sha")
-        if not isinstance(self.commit, str) or not SAFE_SHA.fullmatch(self.commit):
-            fail("Downloaded theme does not resolve to an exact commit")
-        details = latest.get("commit")
-        tree = details.get("tree") if isinstance(details, dict) else None
-        self.entries = self.tree(tree.get("sha") if isinstance(tree, dict) else None)
-        self.background_entries = {}
+        self.name = self.repository.rsplit("/", 1)[-1]
+        refs_url = f"https://github.com/{self.repository}.git/info/refs?service=git-upload-pack"
+        self.commit = advertised_head(self.downloader.read(refs_url, MAX_REF_ADVERTISEMENT_BYTES))
+        storage.mkdir(mode=0o700)
+        archive = storage / "snapshot.tar.gz"
+        archive_url = f"https://codeload.github.com/{self.repository}/tar.gz/{self.commit}"
+        self.downloader.download(archive_url, MAX_ARCHIVE_BYTES, archive)
+        self.entries = self.inventory(archive)
+        self.extract(archive, storage)
 
-    def document(self, url, maximum):
-        return json.loads(self.downloader.read(url, maximum))
+    def walk(self, archive, visitor):
+        expected_root = f"{self.name}-{self.commit}"
+        count = 0
+        declared = 0
+        with archive.open("rb") as compressed:
+            with gzip.GzipFile(fileobj=compressed, mode="rb") as expanded:
+                bounded = BoundedReader(expanded, MAX_ARCHIVE_EXPANDED_BYTES, self.downloader.deadline)
+                with tarfile.open(fileobj=bounded, mode="r|") as stream:
+                    for member in stream:
+                        count += 1
+                        if count > MAX_ARCHIVE_MEMBERS:
+                            fail("Theme archive contains too many entries")
+                        if member.size < 0:
+                            fail("Theme archive contains an invalid entry size")
+                        declared += member.size
+                        if declared > MAX_ARCHIVE_EXPANDED_BYTES:
+                            fail("Theme archive exceeds its expanded byte limit")
+                        if len(member.name.encode("utf-8")) > MAX_ARCHIVE_PATH_BYTES:
+                            fail("Theme archive path is too long")
+                        parts = member.name.rstrip("/").split("/")
+                        if (
+                            not parts
+                            or parts[0].casefold() != expected_root.casefold()
+                            or any(part in {"", ".", ".."} for part in parts)
+                        ):
+                            fail("Theme archive contains an invalid path")
+                        relative = "/".join(parts[1:])
+                        if not relative:
+                            if not member.isdir():
+                                fail("Theme archive root is not a directory")
+                            continue
+                        visitor(stream, member, relative)
+                while bounded.read(64 * 1024):
+                    pass
 
-    def tree(self, sha):
-        if not isinstance(sha, str) or not SAFE_SHA.fullmatch(sha):
-            fail("Invalid theme tree identity")
-        document = self.document(f"{self.api}/git/trees/{sha}", MAX_TREE_LIST_BYTES)
-        if not isinstance(document, dict) or document.get("sha") != sha or document.get("truncated") is not False:
-            fail("Theme tree is incomplete")
-        entries = document.get("tree")
-        if not isinstance(entries, list):
-            fail("Invalid theme tree entries")
-        result = {}
-        for entry in entries:
-            if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
-                fail("Invalid theme tree entry")
-            path = entry["path"]
-            if path in result:
-                fail("Duplicate theme tree entry")
-            result[path] = entry
-        return result
+    def inventory(self, archive):
+        entries = {}
+
+        def inspect(_stream, member, relative):
+            root_file = relative in {"colors.toml", "alacritty.toml", "preview.png"}
+            background = (
+                relative.startswith("backgrounds/")
+                and relative.count("/") == 1
+                and SAFE_IMAGE_NAME.fullmatch(relative.removeprefix("backgrounds/"))
+            )
+            if not root_file and not background:
+                return
+            if background and not member.isfile():
+                return
+            if relative in entries:
+                fail(f"Duplicate theme archive entry: {relative}")
+            if not member.isfile():
+                fail(f"Theme path is not a regular file: {relative}")
+            entries[relative] = {"size": member.size}
+
+        self.walk(archive, inspect)
+        for path in ("colors.toml", "alacritty.toml"):
+            if path in entries and entries[path]["size"] > MAX_PALETTE_BYTES:
+                fail(f"Oversized theme file: {path}")
+        if "preview.png" in entries and entries["preview.png"]["size"] > MAX_IMAGE_BYTES:
+            fail("Oversized theme file: preview.png")
+        backgrounds = sorted(
+            (path for path in entries if path.startswith("backgrounds/")),
+            key=str.casefold,
+        )
+        selected = set(backgrounds[:MAX_IMAGES])
+        for path in backgrounds[MAX_IMAGES:]:
+            del entries[path]
+        image_total = entries.get("preview.png", {}).get("size", 0)
+        for path in selected:
+            size = entries[path]["size"]
+            if size > MAX_IMAGE_BYTES:
+                fail(f"Oversized theme file: {path}")
+            image_total += size
+        if image_total > MAX_IMAGE_TOTAL_BYTES:
+            fail("Theme images exceed the safe total size limit")
+        return entries
+
+    def extract(self, archive, storage):
+        pending = set(self.entries)
+        counter = 0
+
+        def copy_selected(stream, member, relative):
+            nonlocal counter
+            if relative not in pending:
+                return
+            if not member.isfile() or member.size != self.entries[relative]["size"]:
+                fail(f"Theme archive entry changed while reading: {relative}")
+            source = stream.extractfile(member)
+            if source is None:
+                fail(f"Theme archive entry cannot be read: {relative}")
+            destination = storage / f"entry-{counter}"
+            counter += 1
+            remaining = member.size
+            with source, destination.open("xb") as output:
+                while remaining:
+                    chunk = source.read(min(64 * 1024, remaining))
+                    if not chunk:
+                        fail(f"Theme archive entry is incomplete: {relative}")
+                    output.write(chunk)
+                    remaining -= len(chunk)
+                if source.read(1):
+                    fail(f"Theme archive entry exceeds its declared size: {relative}")
+            os.chmod(destination, 0o600)
+            self.entries[relative]["file"] = destination
+            pending.remove(relative)
+
+        self.walk(archive, copy_selected)
+        if pending:
+            fail("Theme archive changed between validation and extraction")
 
     def backgrounds(self):
-        entry = self.entries.get("backgrounds")
-        if entry is None:
-            return []
-        if entry.get("mode") != "040000" or entry.get("type") != "tree":
-            fail("Theme backgrounds path is not a directory")
-        entries = self.tree(entry.get("sha"))
-        self.background_entries = {
-            f"backgrounds/{path}": entry for path, entry in entries.items()
-            if "/" not in path and SAFE_IMAGE_NAME.fullmatch(path)
-            and entry.get("mode") == "100644" and entry.get("type") == "blob"
-        }
-        return sorted(self.background_entries, key=str.casefold)
+        return sorted(
+            (path for path in self.entries if path.startswith("backgrounds/")),
+            key=str.casefold,
+        )
 
     def blob(self, path, maximum):
-        entry = self.background_entries.get(path) if path.startswith("backgrounds/") else self.entries.get(path)
+        entry = self.entries.get(path)
         if entry is None:
             fail(f"Missing theme file: {path}")
-        if entry.get("mode") != "100644" or entry.get("type") != "blob":
-            fail(f"Theme path is not a regular file: {path}")
-        size = entry.get("size")
-        sha = entry.get("sha")
-        if type(size) is not int or size < 0 or size > maximum:
+        size = entry["size"]
+        if size > maximum:
             fail(f"Oversized theme file: {path}")
-        if not isinstance(sha, str) or not SAFE_SHA.fullmatch(sha):
-            fail(f"Invalid theme file identity: {path}")
-        quoted = urllib.parse.quote(path, safe="/")
-        url = f"https://raw.githubusercontent.com/{self.repository}/{self.commit}/{quoted}"
-        data = self.downloader.read(url, size)
-        digest = hashlib.sha1(f"blob {len(data)}\0".encode("ascii") + data).hexdigest()
-        if len(data) != size or digest != sha:
-            fail(f"Theme file changed while reading: {path}")
+        with entry["file"].open("rb") as source:
+            data = source.read(maximum + 1)
+        if len(data) != size:
+            fail(f"Theme archive entry changed after extraction: {path}")
         return data
 
 
@@ -431,7 +594,7 @@ def main():
             root = Path(temporary)
             safe = root / f"omarchy-{slug}-theme"
             safe.mkdir(mode=0o700)
-            snapshot = Snapshot(repository)
+            snapshot = Snapshot(repository, root / "snapshot")
             write_palette(safe / "colors.toml", load_palette(snapshot))
             copy_images(snapshot, safe)
             initialize_safe_repository(safe, repository, snapshot.commit)

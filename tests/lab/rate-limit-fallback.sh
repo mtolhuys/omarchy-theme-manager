@@ -31,7 +31,7 @@ omarchy_host_test() {
 
   ssh_session "plugin=\"\$HOME/.config/omarchy/plugins/io.github.mtolhuys.theme-manager\" && \
     printf '%s\n' '#!/bin/bash' \
-      'printf \"%s\\n\" \"Theme install paused: GitHub public API rate limit reached; retry later\" >&2' \
+      'printf \"%s\\n\" \"Theme install paused: GitHub download rate limit reached; retry later\" >&2' \
       'exit 75' >\"\$plugin/install-theme.py\" && \
     chmod 755 \"\$plugin/install-theme.py\" && \
     mkdir -p \"\$HOME/.local/share/omarchy/bin\" && \

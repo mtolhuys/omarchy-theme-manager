@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.7 - 2026-09-16
+
+- Remove theme installation's dependency on GitHub's unauthenticated REST API
+  quota. Resolve the exact default-branch commit through a 1 MiB-bounded Git
+  smart-HTTP reference advertisement, then fetch one archive pinned to that SHA.
+- Keep the marketplace-reviewed data-only boundary: refuse redirects and HTTP
+  content encoding, cap the compressed archive at 88 MiB, each decompression
+  pass at 160 MiB, entries at 4,096, and paths at 4,096 bytes under the exact
+  commit root. Validate the complete archive before extracting selected regular
+  files into private temporary storage.
+- Preserve the palette, image, aggregate download, deadline, host allowlist,
+  provenance, and sanitized-local-repository checks. Scripts, links, devices,
+  nested backgrounds, application configuration, and unknown files still never
+  reach Omarchy.
+
 ## 0.6.6 - 2026-09-16
 
 - Treat a confirmed GitHub API rate limit as a temporary install failure instead

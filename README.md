@@ -127,24 +127,26 @@ Shell plugins run unsandboxed with the current user's permissions. Review
 sources before enabling.
 
 Themes: only normalized GitHub repository URLs; bounded catalog fields;
-previews from strict GitHub allowlists. One-click installation resolves one exact
-commit through the GitHub API, reads only the root and background tree metadata,
-and streams selected palette and image files from that commit. Remote Git clones,
-packs, and lazy blob fetches are not used. Metadata and file downloads have byte
-limits enforced while reading, an aggregate download budget, a 60-second deadline
-checked between reads, and a 10-second socket timeout. Redirects and compressed
-responses are refused. Declared file sizes are checked before download, and the
-downloaded bytes must match the tree's blob identity. A new local theme is built
-from the strictly parsed palette and bounded images. Scripts, symlinks, submodules, application configs, and all
-other upstream content are excluded before Omarchy sees the theme. The exact
-source commit is recorded in the installed theme. A catalog badge is not a
-security endorsement.
+previews from strict GitHub allowlists. One-click installation resolves one
+exact commit through a 1 MiB-bounded Git smart-HTTP reference advertisement,
+then downloads one source archive pinned to that SHA. It does not use GitHub's
+REST API quota, a remote Git clone, a pack fetch, or a lazy blob read.
 
-Installation requires public GitHub API access. API errors stop the install
-without invoking Omarchy. When GitHub's public rate limit is exhausted, the
-picker offers a one-shot **View source** fallback and immediately restores
-**Install** afterward so the user can retry later. No GitHub credentials are
-requested.
+The archive is capped at 88 MiB while downloading and 160 MiB while
+decompressing, with at most 4,096 entries and 4,096-byte paths beneath the exact
+commit root. Redirects and HTTP content encoding are refused. All network and
+archive work shares a 60-second deadline and 10-second socket timeout. Selected
+palettes and images retain their per-file and 80 MiB combined image limits. A
+new local theme is built from the strictly parsed palette and signature-checked
+images. Scripts, links, devices, submodules, nested backgrounds, application
+configs, and all other upstream content are excluded before Omarchy sees the
+theme. The exact source commit is recorded in the installed theme. A catalog
+badge is not a security endorsement.
+
+GitHub errors stop the install without invoking Omarchy. If GitHub throttles a
+download, the picker offers a one-shot **View source** fallback and immediately
+restores **Install** afterward so the user can retry later. No GitHub credentials
+are requested.
 
 Wallpapers: only Aether and Omarchy picker helpers; capped streaming output;
 validated ids; previews from Aether's thumbnail cache; downloads from Aether's

@@ -17,7 +17,12 @@ const run = (command, args, options = {}) => {
   return result
 }
 
-const createHarness = async ({ colors, legacy = "", mutateResponses = () => {} }) => {
+const createHarness = async ({
+  colors,
+  legacy = "",
+  archivePrefix = "",
+  mutateResponses = () => {}
+}) => {
   const root = await mkdtemp(join(tmpdir(), "theme-manager-install-"))
   const repository = join(root, "source")
   const mockBin = join(root, "bin")
@@ -39,37 +44,27 @@ const createHarness = async ({ colors, legacy = "", mutateResponses = () => {} }
   run(realGit, ["-C", repository, "add", "--all"])
   run(realGit, ["-C", repository, "commit", "-qm", "fixture"])
   const commit = run(realGit, ["-C", repository, "rev-parse", "HEAD"]).stdout.trim()
-  const tree = run(realGit, ["-C", repository, "rev-parse", "HEAD^{tree}"]).stdout.trim()
-  const api = "https://api.github.com/repos/example/omarchy-safe-theme"
   const responses = {}
-  const jsonResponse = (value) => ({ data: Buffer.from(JSON.stringify(value)).toString("base64") })
-  responses[`${api}/commits?per_page=1`] = jsonResponse([
-    { sha: commit, commit: { tree: { sha: tree } } }
+  const packet = (payload) =>
+    Buffer.concat([Buffer.from((payload.length + 4).toString(16).padStart(4, "0")), payload])
+  const advertisement = Buffer.concat([
+    packet(Buffer.from("# service=git-upload-pack\n")),
+    Buffer.from("0000"),
+    packet(Buffer.from(`${commit} HEAD\0symref=HEAD:refs/heads/main\n`)),
+    packet(Buffer.from(`${commit} refs/heads/main\n`)),
+    Buffer.from("0000")
   ])
-  for (const directory of ["", "backgrounds"]) {
-    const reference = directory ? `HEAD:${directory}` : "HEAD"
-    const sha = directory
-      ? run(realGit, ["-C", repository, "rev-parse", reference]).stdout.trim()
-      : tree
-    const entries = run(realGit, ["-C", repository, "ls-tree", "-l", "-z", reference])
-      .stdout.split("\0")
-      .filter(Boolean)
-      .map((record) => {
-        const [metadata, path] = record.split("\t")
-        const [mode, type, sha, size] = metadata.trim().split(/\s+/)
-        return { mode, type, sha, size: type === "blob" ? Number(size) : undefined, path }
-      })
-    responses[`${api}/git/trees/${sha}`] = jsonResponse({ sha, truncated: false, tree: entries })
-    for (const entry of entries.filter((entry) => entry.type === "blob")) {
-      const path = directory ? `${directory}/${entry.path}` : entry.path
-      const contents = spawnSync(realGit, ["-C", repository, "show", `HEAD:${path}`])
-      assert.equal(contents.status, 0, contents.stderr.toString())
-      responses[
-        `https://raw.githubusercontent.com/example/omarchy-safe-theme/${commit}/${encodeURI(path)}`
-      ] = {
-        data: contents.stdout.toString("base64")
-      }
-    }
+  responses["https://github.com/example/omarchy-safe-theme.git/info/refs?service=git-upload-pack"] =
+    { data: advertisement.toString("base64") }
+  const prefix = archivePrefix || `omarchy-safe-theme-${commit}/`
+  const archive = spawnSync(
+    realGit,
+    ["-C", repository, "archive", "--format=tar.gz", `--prefix=${prefix}`, "HEAD"],
+    { maxBuffer: 256 * 1024 * 1024 }
+  )
+  assert.equal(archive.status, 0, archive.stderr.toString())
+  responses[`https://codeload.github.com/example/omarchy-safe-theme/tar.gz/${commit}`] = {
+    data: archive.stdout.toString("base64")
   }
   mutateResponses(responses)
   const responsesPath = join(root, "responses.json")
@@ -178,6 +173,12 @@ test("installs only a data-only snapshot through Omarchy", async () => {
     ])
     assert.doesNotMatch(installed.colors, /unknown/)
     assert.match(installed.source, /\/commit\/[0-9a-f]{40}/)
+    const requests = await harness.requests()
+    assert.equal(requests.length, 2)
+    assert.equal(
+      requests.some((url) => url.includes("api.github.com")),
+      false
+    )
   } finally {
     await harness.cleanup()
   }
@@ -207,11 +208,11 @@ test("refuses non-GitHub and path-bearing repository input", async () => {
   }
 })
 
-test("rejects oversized tree metadata during the initial read", async () => {
+test("rejects oversized ref metadata during the initial read", async () => {
   const harness = await createHarness({
     colors: semanticColors,
     mutateResponses: (responses) => {
-      const url = Object.keys(responses).find((url) => url.includes("/git/trees/"))
+      const url = Object.keys(responses).find((url) => url.includes(".git/info/refs"))
       responses[url].data = Buffer.alloc(1024 * 1024 + 1, 32).toString("base64")
     }
   })
@@ -219,23 +220,15 @@ test("rejects oversized tree metadata during the initial read", async () => {
     const result = harness.run()
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /byte limit/)
-    assert.equal((await harness.requests()).length, 2)
+    assert.equal((await harness.requests()).length, 1)
     await assert.rejects(harness.log(), { code: "ENOENT" })
   } finally {
     await harness.cleanup()
   }
 })
 
-test("refuses an oversized remote blob before requesting its content", async () => {
-  const harness = await createHarness({
-    colors: semanticColors,
-    mutateResponses: (responses) => {
-      const url = Object.keys(responses).find((url) => url.includes("/git/trees/"))
-      const tree = JSON.parse(Buffer.from(responses[url].data, "base64").toString())
-      tree.tree.find((entry) => entry.path === "colors.toml").size = 64 * 1024 + 1
-      responses[url].data = Buffer.from(JSON.stringify(tree)).toString("base64")
-    }
-  })
+test("refuses an oversized selected file before invoking Omarchy", async () => {
+  const harness = await createHarness({ colors: "x".repeat(64 * 1024 + 1) })
   try {
     const result = harness.run()
     assert.notEqual(result.status, 0)
@@ -247,20 +240,15 @@ test("refuses an oversized remote blob before requesting its content", async () 
   }
 })
 
-test("rejects blob bytes that disagree with the pinned tree identity", async () => {
+test("rejects an archive whose root does not match the pinned commit", async () => {
   const harness = await createHarness({
     colors: semanticColors,
-    mutateResponses: (responses) => {
-      const url = Object.keys(responses).find((url) => url.endsWith("/colors.toml"))
-      const bytes = Buffer.from(responses[url].data, "base64")
-      bytes[0] ^= 1
-      responses[url].data = bytes.toString("base64")
-    }
+    archivePrefix: "wrong-root/"
   })
   try {
     const result = harness.run()
     assert.notEqual(result.status, 0)
-    assert.match(result.stderr, /changed while reading/)
+    assert.match(result.stderr, /invalid path/)
     await assert.rejects(harness.log(), { code: "ENOENT" })
   } finally {
     await harness.cleanup()
@@ -286,10 +274,7 @@ test("converts a legacy Alacritty palette using the same bounded snapshot", asyn
     const result = harness.run()
     assert.equal(result.status, 0, result.stderr)
     assert.match((await harness.log()).colors, /color0 = "#112233"/)
-    assert.equal(
-      (await harness.requests()).some((url) => url.endsWith("/colors.toml")),
-      false
-    )
+    assert.equal((await harness.requests()).length, 2)
   } finally {
     await harness.cleanup()
   }

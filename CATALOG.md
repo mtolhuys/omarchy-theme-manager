@@ -25,27 +25,29 @@ are accepted only from `raw.githubusercontent.com` or GitHub's
 
 Catalog records and badges are not security endorsements. Theme Manager never
 passes a catalog repository directly to `omarchy theme install`. On confirmed
-installation it resolves a full commit ID through GitHub's API and reads only
-the root and background tree metadata and selected raw files at that commit.
-No remote Git clone, pack fetch, or lazy blob download is used. It creates a separate
-local repository containing a strictly parsed `colors.toml`, up to 16 bounded
-wallpaper images, an optional bounded preview image, and source provenance.
+installation it resolves the default branch's full commit ID through a bounded
+Git smart-HTTP reference advertisement and downloads one source archive pinned
+to that SHA. This avoids GitHub's unauthenticated REST API quota. No remote Git
+clone, pack fetch, or lazy blob download is used. It creates a separate local
+repository containing a strictly parsed `colors.toml`, up to 16 bounded wallpaper
+images, an optional bounded preview image, and source provenance.
 
 The source repository is never checked out. Symlinks, submodules, nested
 background trees, scripts, hooks, terminal/editor/application configs, and all
-unknown content are excluded. Metadata is limited to 64 KiB for the commit and
-1 MiB per nonrecursive tree. Palettes are capped at 64 KiB, individual images at
-20 MiB, and combined images (including the preview) at 80 MiB. Declared blob sizes
-are checked before requesting raw content, and response bytes are capped during
-streaming even without a valid length header. All downloads share an aggregate
-budget of 82.125 MiB, a 60-second deadline checked between reads, and a 10-second
-socket timeout. Oversize detection may consume one extra byte before aborting.
-Redirects and compressed responses are refused; downloaded blobs must match the
-tree's SHA identity, and accepted images must match a supported file signature.
-Git system/global configuration and prompts are disabled for the new local
-repository. API errors, rate limits, or incomplete downloads stop installation. Omarchy
-installs and applies only the newly constructed data-only repository. A missing
-or malformed palette fails closed.
+unknown content are excluded. The reference advertisement is limited to 1 MiB.
+The commit-pinned archive is capped at 88 MiB while downloading and 160 MiB on
+each bounded decompression pass, with at most 4,096 entries and 4,096-byte paths
+beneath the expected repository-and-commit root. Palettes are capped at 64 KiB,
+individual images at 20 MiB, and combined images (including the preview) at
+80 MiB. Response bytes are capped during streaming even without a valid length
+header. Network and archive work shares a 60-second deadline checked between
+reads and a 10-second socket timeout. Oversize detection may consume one extra
+byte before aborting. Redirects and HTTP content encoding are refused; accepted
+images must match a supported file signature. Git system/global configuration
+and prompts are disabled for the new local repository. GitHub errors, throttling,
+malformed archives, and incomplete downloads stop installation. Omarchy installs
+and applies only the newly constructed data-only repository. A missing or
+malformed palette fails closed.
 
 ## Cache
 
