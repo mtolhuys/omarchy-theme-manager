@@ -115,6 +115,14 @@ const catalogRows = (payload, inventory = {}) => {
 
     const canInstall = !installed && !stockConflict
 
+    const searchText = [name, owner, description, installSlug, repositoryUrl, apps.join(" ")]
+      .join(" ")
+      .toLowerCase()
+    const searchNormalized = searchText
+      .replace(/[-_./]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+
     rowsByRepository[repositoryUrl] = {
       filePath: repositoryUrl,
       fileName: `${installSlug}.webp`,
@@ -132,9 +140,10 @@ const catalogRows = (payload, inventory = {}) => {
       stockConflict,
       canInstall,
       status: displayStatus({ installed, stockConflict }),
-      searchText: [name, owner, description, installSlug, repositoryUrl, apps.join(" ")]
-        .join(" ")
-        .toLowerCase()
+      searchText,
+      searchNormalized,
+      searchCompact: searchNormalized.replace(/\s+/g, ""),
+      searchWords: searchNormalized.split(" ").filter(Boolean)
     }
   }
 

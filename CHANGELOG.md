@@ -1,12 +1,25 @@
 # Changelog
 
-## Unreleased
+## 0.6.5 - 2026-09-16
 
 - Address marketplace issue #5344: replace remote partial Git clones and lazy
   blob fetching with bounded HTTP reads of one exact commit, two nonrecursive
   trees, and selected data files. Check declared sizes before fetching blobs,
   enforce per-response and aggregate byte budgets during reads, refuse
   redirects/compression, and compare downloaded blobs with their tree identities.
+- Bound the QML carousel to a reusable 17-delegate pool (at most 15 visible)
+  instead of constructing one masked, GPU-backed delegate for every catalog or
+  wallpaper result. This prevents name/filter changes from exhausting the shell
+  and removes collection-size-dependent navigation work.
+- Build one search/match index per query and pre-index catalog search metadata,
+  replacing repeated fuzzy scans from every delegate with constant-time carousel
+  positioning.
+- Debounce palette extraction through rapid wallpaper navigation and cache the
+  24 most recent palettes, so stale ImageMagick completions no longer immediately
+  start more work while the selection is still moving.
+- Add disposable Omarchy 4.0.3 performance acceptance for catalog search,
+  repeated catalog navigation, rapid wallpaper navigation, palette settle, and
+  shell resource-error checks.
 
 ## 0.6.4 - 2026-09-15
 

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.mtolhuys.theme-manager",
   "name": "Omarchy Theme Manager",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "author": "Maarten Tolhuijs",
   "license": "MIT",
   "description": "Manage Omarchy themes, sticky per-theme wallpapers/icons, browse Aether-backed Wallhaven wallpapers, and install Pling/gnome-look.org icon themes from the native picker.",

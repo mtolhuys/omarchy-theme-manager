@@ -9,7 +9,7 @@ const read = (path) => readFile(join(process.cwd(), path), "utf8")
 test("keeps the published Theme Manager identity as the sole picker clone", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   assert.equal(manifest.id, "io.github.mtolhuys.theme-manager")
-  assert.equal(manifest.version, "0.6.4")
+  assert.equal(manifest.version, "0.6.5")
   assert.deepEqual(manifest.kinds, ["overlay"])
   assert.match(manifest.entryPoints.overlay, /^v[0-9]{4}\/ImagePicker\.qml$/)
   assert.equal(manifest.omarchy.clonedFrom, "omarchy.image-picker")
@@ -59,6 +59,22 @@ test("versions the complete QML and JavaScript runtime graph", async () => {
   ]) {
     assert.ok((await read(join(runtimeDir, file))).length > 0, file)
   }
+})
+
+test("bounds carousel rendering and defers wallpaper palette work while navigating", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const runtimeDir = dirname(manifest.entryPoints.overlay)
+  const picker = await read(join(runtimeDir, "ImagePicker.qml"))
+  const palette = await read(join(runtimeDir, "WallpaperPalette.qml"))
+
+  assert.match(picker, /readonly property int carouselPoolSize: 17/)
+  assert.match(picker, /model: root\.carouselPoolSize/)
+  assert.doesNotMatch(picker, /model: root\.imageArray\.length/)
+  assert.match(picker, /ImagePickerModel\.positionsForIndices/)
+  assert.match(picker, /Math\.abs\(relativeIndex\) <= 7/)
+  assert.match(palette, /readonly property int paletteCacheLimit: 24/)
+  assert.match(palette, /root\.queueSample\(\)/)
+  assert.doesNotMatch(palette, /Qt\.callLater\(root\.startSample\)/)
 })
 
 test("releases image-selector clients independently of QML loader teardown", async () => {
@@ -302,7 +318,9 @@ test("installs external wallpapers into theme backgrounds for the local picker",
   assert.match(picker, /Optimistic UI drop BEFORE Process starts/)
   assert.doesNotMatch(picker, /root\.wallpaperRemoveProc\.succeeded/)
   assert.doesNotMatch(picker, /root\.wallpaperResetProc\.succeeded/)
-  assert.match(picker, /model: root\.imageArray\.length/)
+  assert.match(picker, /model: root\.carouselPoolSize/)
+  assert.match(picker, /readonly property int carouselPoolSize: 17/)
+  assert.doesNotMatch(picker, /model: root\.imageArray\.length/)
   assert.match(picker, /replaceImageArray/)
   assert.match(picker, /imageModelEpoch/)
   assert.match(picker, /Live Remove must paint immediately/)

@@ -116,3 +116,54 @@ test("supports soft multi-word and compact fuzzy matches", () => {
   assert.equal(model.textMatches("Matte Black Theme", "matte blak"), true)
   assert.equal(model.textMatches("Tokyo Night Storm", "tokyo strom night"), true)
 })
+
+test("builds one match index for constant-time carousel positioning", () => {
+  const indices = model.matchingIndices(images, "a")
+  const positions = model.positionsForIndices(indices, images.length)
+
+  assert.deepEqual(indices, [0, 1, 3, 4])
+  assert.deepEqual(positions, [0, 1, -1, 2, 3])
+  assert.equal(model.nearestWrappedCursor(17, 0, 18), 18)
+  assert.equal(model.nearestWrappedCursor(0, 17, 18), -1)
+})
+
+test("maps a large carousel onto a bounded stable delegate pool", () => {
+  const poolSize = 17
+  const before = Array.from({ length: poolSize }, (_, slot) => ({
+    relative: model.carouselRelativeForSlot(slot, 17, 2000, poolSize),
+    position: model.carouselPositionForSlot(slot, 17, 2000, poolSize)
+  }))
+  const after = Array.from({ length: poolSize }, (_, slot) => ({
+    relative: model.carouselRelativeForSlot(slot, 18, 2000, poolSize),
+    position: model.carouselPositionForSlot(slot, 18, 2000, poolSize)
+  }))
+
+  assert.equal(before.filter((entry) => entry.relative !== null).length, poolSize)
+  assert.equal(after.filter((entry) => entry.relative !== null).length, poolSize)
+  assert.deepEqual(
+    before.find((entry) => entry.position === 17),
+    { relative: 0, position: 17 }
+  )
+  assert.deepEqual(
+    after.find((entry) => entry.position === 17),
+    { relative: -1, position: 17 }
+  )
+  assert.deepEqual(
+    after.find((entry) => entry.position === 18),
+    { relative: 0, position: 18 }
+  )
+  assert.equal(new Set(after.map((entry) => entry.position)).size, poolSize)
+})
+
+test("keeps every item stable when the carousel fits inside the pool", () => {
+  const positions = Array.from({ length: 5 }, (_, slot) =>
+    model.carouselPositionForSlot(slot, 5, 5, 17)
+  )
+  const relatives = Array.from({ length: 5 }, (_, slot) =>
+    model.carouselRelativeForSlot(slot, 5, 5, 17)
+  )
+
+  assert.deepEqual(positions, [0, 1, 2, 3, 4])
+  assert.deepEqual(relatives, [0, 1, 2, -2, -1])
+  assert.equal(model.carouselPositionForSlot(5, 5, 5, 17), -1)
+})

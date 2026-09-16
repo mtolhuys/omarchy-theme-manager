@@ -19,7 +19,7 @@ import "IconBrowseModel.js" as IconBrowseModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.6.4"
+  readonly property string buildIdentity: "0.6.5"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var manifest: null
@@ -276,15 +276,31 @@ Item {
       footerIconHasPreviews: footerIconHasPreviews,
       iconsInventoryCount: Array.isArray(iconsInventoryThemes) ? iconsInventoryThemes.length : 0,
       images: imageArray.length,
-      query: wallhavenMode ? filterText : "",
+      matchingImages: matchingIndices.length,
+      carouselDelegates: carouselRepeater.count,
+      visibleCarouselDelegates: visibleCarouselDelegateCount(),
+      selectedIndex: selectedIndex,
+      selectedPath: currentPath(),
+      carouselCursor: carouselCursor,
+      query: wallhavenMode || catalogMode ? filterText : "",
       filtersOpen: filterSheet.opened || catalogFilterSheet.opened,
       catalogInstallConfirmationOpen: themeCatalog.confirmationOpen,
       favoriteCount: favoriteIds.length,
       currentFavorite: currentFavorite,
       favoritesOnly: favoritesOnly,
       paletteReady: wallpaperPalette.ready,
-      paletteSampledPath: wallpaperPalette.sampledPath
+      paletteSampledPath: wallpaperPalette.sampledPath,
+      paletteSourcePath: currentPaletteSource()
     })
+  }
+
+  function visibleCarouselDelegateCount() {
+    let count = 0
+    for (let index = 0; index < carouselRepeater.count; index++) {
+      const delegate = carouselRepeater.itemAt(index)
+      if (delegate && delegate.visible) count += 1
+    }
+    return count
   }
 
   onOpenedChanged: {
@@ -1382,67 +1398,66 @@ Item {
   }
 
   function itemMatches(index) {
-    // Catalog/Wallhaven/icons-browse already bake search into imageArray.
-    if (wallhavenMode || iconsBrowseMode || catalogMode)
-      return index >= 0 && index < imageArray.length
-    if (iconsMode)
-      return ImagePickerModel.itemMatches(imageArray, index, filterText)
-    if (localWallpaperMode && favoritesOnly) {
-      if (index < 0 || index >= imageArray.length) return false
-      const item = imageArray[index]
-      if (!item || !WallpaperCommandModel.isFavorite(
-          favoriteIds,
-          item.filePath,
-          wallpaperFavoriteContext())) return false
-    }
-    return ImagePickerModel.itemMatches(imageArray, index, filterText)
+    return index >= 0
+      && index < matchingPositions.length
+      && matchingPositions[index] >= 0
   }
 
   function firstMatchingIndex() {
-    if (wallhavenMode || iconsBrowseMode || catalogMode)
-      return imageArray.length > 0 ? 0 : -1
-    for (let index = 0; index < imageArray.length; index++)
-      if (itemMatches(index)) return index
-    return -1
+    return matchingIndices.length > 0 ? matchingIndices[0] : -1
   }
 
   function filteredPosition(index) {
-    if (wallhavenMode || catalogMode) return index
-    let position = 0
-    for (let candidate = 0; candidate < index; candidate++)
-      if (itemMatches(candidate)) position += 1
-    return position
+    return index >= 0 && index < matchingPositions.length
+      ? matchingPositions[index]
+      : -1
   }
 
   function selectedFilteredPosition() {
-    if (wallhavenMode || catalogMode) return selectedIndex
-    return itemMatches(selectedIndex) ? filteredPosition(selectedIndex) : 0
+    return filteredPosition(selectedIndex)
   }
 
-  function select(index, immediate) {
+  function syncCarouselCursor() {
+    const position = selectedFilteredPosition()
+    if (position >= 0) {
+      carouselCursor = ImagePickerModel.nearestWrappedCursor(
+        carouselCursor,
+        position,
+        matchingIndices.length)
+    } else if (matchingIndices.length > 0) {
+      carouselCursor = 0
+      selectedIndex = matchingIndices[0]
+    } else {
+      carouselCursor = 0
+    }
+  }
+
+  function select(index, immediate, virtualCursor) {
     if (imageArray.length === 0) return
     if (index < 0) index = 0
     else if (index >= imageArray.length) index = imageArray.length - 1
     if (!itemMatches(index)) return
     if (index === selectedIndex && immediate !== true) return
 
+    const position = filteredPosition(index)
+    carouselCursor = Number.isFinite(virtualCursor)
+      ? virtualCursor
+      : ImagePickerModel.nearestWrappedCursor(
+          carouselCursor,
+          position,
+          matchingIndices.length)
     selectedIndex = index
     if (wallhavenMode) Qt.callLater(maybeLoadMoreWallhaven)
     if (iconsBrowseMode) Qt.callLater(maybeLoadMoreIconsBrowse)
   }
 
   function selectAdjacent(direction) {
-    const count = imageArray.length
+    const count = matchingIndices.length
     if (count === 0) return
 
-    let index = selectedIndex
-    for (let i = 0; i < count; i++) {
-      index = (index + direction + count) % count
-      if (itemMatches(index)) {
-        select(index)
-        return
-      }
-    }
+    const nextCursor = carouselCursor + direction
+    const position = ImagePickerModel.wrappedIndex(nextCursor, count)
+    select(matchingIndices[position], false, nextCursor)
   }
 
   function updateFilter(nextFilterText) {
@@ -1536,11 +1551,8 @@ Item {
 
     const source = Array.isArray(catalogSourceRows) ? catalogSourceRows : []
     const selectedPath = currentPath()
-    const textMatched = []
-    for (let index = 0; index < source.length; index++) {
-      if (ImagePickerModel.itemMatches(source, index, filterText))
-        textMatched.push(source[index])
-    }
+    const textMatched = ImagePickerModel.matchingIndices(source, filterText)
+      .map(function(index) { return source[index] })
 
     // Prefer AND of text + sheet filters. If that yields nothing but the name
     // search itself hits rows, fall back to text-only so sticky stars/listing
@@ -1855,6 +1867,31 @@ Item {
   // Bumped on every intentional model replace so index-bound delegates re-read
   // root.imageArray[index] even when length stays the same.
   property int imageModelEpoch: 0
+  readonly property bool searchAlreadyApplied: wallhavenMode || iconsBrowseMode || catalogMode
+  readonly property var textMatchingIndices: ImagePickerModel.matchingIndices(
+    imageArray,
+    searchAlreadyApplied ? "" : filterText)
+  readonly property var matchingIndices: {
+    if (!(localWallpaperMode && favoritesOnly)) return textMatchingIndices
+    const next = []
+    for (let position = 0; position < textMatchingIndices.length; position++) {
+      const index = textMatchingIndices[position]
+      const item = index >= 0 && index < imageArray.length ? imageArray[index] : null
+      if (item && WallpaperCommandModel.isFavorite(
+          favoriteIds,
+          item.filePath,
+          wallpaperFavoriteContext())) next.push(index)
+    }
+    return next
+  }
+  readonly property var matchingPositions: ImagePickerModel.positionsForIndices(
+    matchingIndices,
+    imageArray.length)
+  readonly property int carouselPoolSize: 17
+  property int carouselCursor: 0
+
+  onMatchingIndicesChanged: syncCarouselCursor()
+  onSelectedIndexChanged: syncCarouselCursor()
 
   function replaceImageArray(next) {
     imageArray = Array.isArray(next) ? next.slice() : []
@@ -2597,31 +2634,46 @@ Item {
         readonly property real previewX: (width - root.expandedWidth) / 2
 
         Repeater {
-          // Length model (not the JS array object): removals destroy the last
-          // delegate immediately. Epoch is a dependency so surviving indices
-          // re-read root.imageArray[index] after replaceImageArray — the array
-          // object model left Behaviors/sourceActivated ghosts until reopen.
-          model: root.imageArray.length + (root.imageModelEpoch * 0)
+          id: carouselRepeater
+
+          // Keep GPU-heavy masked delegates strictly bounded. Each slot tracks a
+          // stable virtual carousel position, so navigation recycles only the
+          // item crossing the far edge instead of instantiating every result.
+          model: root.carouselPoolSize
 
           delegate: Item {
             id: item
             required property int index
 
-            // Depend on imageModelEpoch so surviving indices rebind after replace.
+            readonly property var relativeValue: ImagePickerModel.carouselRelativeForSlot(
+              index,
+              root.carouselCursor,
+              root.matchingIndices.length,
+              root.carouselPoolSize)
+            readonly property int relativeIndex: relativeValue === null ? 0 : relativeValue
+            readonly property int matchPosition: ImagePickerModel.carouselPositionForSlot(
+              index,
+              root.carouselCursor,
+              root.matchingIndices.length,
+              root.carouselPoolSize)
+            readonly property int imageIndex: matchPosition >= 0
+              && matchPosition < root.matchingIndices.length
+              ? root.matchingIndices[matchPosition]
+              : -1
             readonly property var imageData: root.imageModelEpoch >= 0
-              && index >= 0
-              && index < root.imageArray.length
-              ? root.imageArray[index]
+              && imageIndex >= 0
+              && imageIndex < root.imageArray.length
+              ? root.imageArray[imageIndex]
               : null
             readonly property string filePath: imageData ? imageData.filePath : ""
             readonly property string fileName: imageData ? imageData.fileName : ""
             readonly property string thumbnailPath: imageData ? imageData.thumbnailPath : ""
 
-            readonly property bool matched: root.itemMatches(index)
-            readonly property int relativeIndex: root.filteredPosition(index) - root.selectedFilteredPosition()
-            readonly property bool selected: matched && index === root.selectedIndex
-            readonly property bool nearby: matched
-              && Math.abs(relativeIndex) <= (root.wallhavenMode || root.catalogMode || root.iconsMode || root.iconsBrowseMode ? 7 : 16)
+            readonly property bool matched: imageIndex >= 0
+            readonly property bool selected: matched && imageIndex === root.selectedIndex
+            // Keep one recycled slot hidden beyond each edge so its source/x
+            // jump can never sweep across the visible carousel.
+            readonly property bool nearby: matched && Math.abs(relativeIndex) <= 7
             property bool sourceActivated: nearby
             onNearbyChanged: if (nearby) sourceActivated = true
             onFilePathChanged: {
@@ -2880,7 +2932,7 @@ Item {
               onClicked: {
                 if (item.selected) root.applySelected()
                 else {
-                  root.select(index)
+                  root.select(item.imageIndex, false, root.carouselCursor + item.relativeIndex)
                   root.focusPicker()
                 }
               }

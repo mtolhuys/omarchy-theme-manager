@@ -21,6 +21,15 @@ const normalizeSearchText = (value) =>
 
 const compactSearchText = (value) => normalizeSearchText(value).replace(/\s+/g, "")
 
+const searchIndex = (value) => {
+  const normalized = normalizeSearchText(value)
+  return {
+    normalized,
+    compact: normalized.replace(/\s+/g, ""),
+    words: normalized.split(" ").filter(Boolean)
+  }
+}
+
 const isSubsequence = (needle, haystack) => {
   const token = stringValue(needle)
   const text = stringValue(haystack)
@@ -76,7 +85,7 @@ const fuzzyDistanceForToken = (token) => {
   return 0
 }
 
-const tokenMatchesHaystack = (token, hayNormalized, hayCompact) => {
+const tokenMatchesHaystack = (token, hayNormalized, hayCompact, hayWords) => {
   const needle = stringValue(token)
   if (!needle) return true
 
@@ -84,7 +93,7 @@ const tokenMatchesHaystack = (token, hayNormalized, hayCompact) => {
   if (hayNormalized.includes(needle)) return true
   if (compactNeedle && hayCompact.includes(compactNeedle)) return true
 
-  const words = hayNormalized.split(" ").filter(Boolean)
+  const words = Array.isArray(hayWords) ? hayWords : hayNormalized.split(" ").filter(Boolean)
   const maxDistance = fuzzyDistanceForToken(needle)
   for (const word of words) {
     if (word.includes(needle)) return true
@@ -99,13 +108,16 @@ const tokenMatchesHaystack = (token, hayNormalized, hayCompact) => {
   return false
 }
 
-const textMatches = (haystack, filterText) => {
-  const needle = normalizeSearchText(filterText)
+const searchIndexesMatch = (haystackIndex, queryIndex) => {
+  const query = queryIndex || searchIndex("")
+  const needle = query.normalized
   if (!needle) return true
 
-  const hayNormalized = normalizeSearchText(haystack)
-  const hayCompact = compactSearchText(haystack)
-  const compactNeedle = compactSearchText(filterText)
+  const hay = haystackIndex || searchIndex("")
+  const hayNormalized = stringValue(hay.normalized)
+  const hayCompact = stringValue(hay.compact)
+  const hayWords = Array.isArray(hay.words) ? hay.words : undefined
+  const compactNeedle = query.compact
 
   // Whole-phrase / compact hits before token AND (multi-word & hyphen-insensitive).
   if (hayNormalized.includes(needle)) return true
@@ -113,14 +125,15 @@ const textMatches = (haystack, filterText) => {
 
   const tokens = needle.split(" ").filter(Boolean)
   if (tokens.length === 0) return true
-  if (tokens.every((token) => tokenMatchesHaystack(token, hayNormalized, hayCompact))) return true
+  if (tokens.every((token) => tokenMatchesHaystack(token, hayNormalized, hayCompact, hayWords)))
+    return true
 
   // Soft fallback: require all but one token when the query is long enough.
   // Avoids false negatives on multi-word names with a single typo token.
   if (tokens.length >= 3) {
     let misses = 0
     for (const token of tokens) {
-      if (!tokenMatchesHaystack(token, hayNormalized, hayCompact)) misses += 1
+      if (!tokenMatchesHaystack(token, hayNormalized, hayCompact, hayWords)) misses += 1
       if (misses > 1) return false
     }
     return true
@@ -128,6 +141,11 @@ const textMatches = (haystack, filterText) => {
 
   return false
 }
+
+const textMatchesIndex = (haystackIndex, filterText) =>
+  searchIndexesMatch(haystackIndex, searchIndex(filterText))
+
+const textMatches = (haystack, filterText) => textMatchesIndex(searchIndex(haystack), filterText)
 
 const loadRows = (rows) => {
   const seenFileNames = {}
@@ -164,11 +182,92 @@ const itemSearchHaystack = (image) => {
     .join(" ")
 }
 
+const itemSearchIndex = (image) => {
+  const item = image || {}
+  if (
+    typeof item.searchNormalized === "string" &&
+    typeof item.searchCompact === "string" &&
+    Array.isArray(item.searchWords)
+  ) {
+    return {
+      normalized: item.searchNormalized,
+      compact: item.searchCompact,
+      words: item.searchWords
+    }
+  }
+  return searchIndex(itemSearchHaystack(item))
+}
+
 const itemMatches = (images, index, filterText) => {
   const values = imageValues(images)
   if (index < 0 || index >= values.length) return false
   if (!normalizeSearchText(filterText)) return true
-  return textMatches(itemSearchHaystack(values[index]), filterText)
+  return textMatchesIndex(itemSearchIndex(values[index]), filterText)
+}
+
+const matchingIndices = (images, filterText) => {
+  const values = imageValues(images)
+  const query = searchIndex(filterText)
+  if (!query.normalized) return values.map((_, index) => index)
+
+  const indices = []
+  for (let index = 0; index < values.length; index++) {
+    if (searchIndexesMatch(itemSearchIndex(values[index]), query)) indices.push(index)
+  }
+  return indices
+}
+
+const positionsForIndices = (indices, imageCount) => {
+  const count = Math.max(0, Number(imageCount) || 0)
+  const positions = new Array(count).fill(-1)
+  for (let position = 0; position < indices.length; position++) {
+    const index = Number(indices[position])
+    if (Number.isInteger(index) && index >= 0 && index < count) positions[index] = position
+  }
+  return positions
+}
+
+const wrappedIndex = (value, count) => {
+  const length = Math.max(0, Number(count) || 0)
+  if (length === 0) return -1
+  return ((Number(value) % length) + length) % length
+}
+
+const nearestWrappedCursor = (cursor, position, count) => {
+  const length = Math.max(0, Number(count) || 0)
+  const target = wrappedIndex(position, length)
+  if (target < 0) return 0
+  const current = Number(cursor) || 0
+  return target + Math.round((current - target) / length) * length
+}
+
+const carouselRelativeForSlot = (slot, cursor, count, poolSize) => {
+  const length = Math.max(0, Number(count) || 0)
+  const size = Math.max(1, Math.floor(Number(poolSize) || 1))
+  const poolSlot = Math.floor(Number(slot) || 0)
+  if (poolSlot < 0 || poolSlot >= size || length === 0) return null
+
+  if (length <= size) {
+    if (poolSlot >= length) return null
+    const selected = wrappedIndex(cursor, length)
+    let relative = poolSlot - selected
+    const half = Math.floor(length / 2)
+    if (relative > half) relative -= length
+    else if (relative < -half) relative += length
+    return relative
+  }
+
+  const selectedSlot = wrappedIndex(cursor, size)
+  let relative = poolSlot - selectedSlot
+  const half = Math.floor(size / 2)
+  if (relative > half) relative -= size
+  else if (relative < -half) relative += size
+  return relative
+}
+
+const carouselPositionForSlot = (slot, cursor, count, poolSize) => {
+  const relative = carouselRelativeForSlot(slot, cursor, count, poolSize)
+  return relative === null ? -1 : wrappedIndex((Number(cursor) || 0) + relative, count)
 }
 
 const firstMatchingIndex = (images, filterText) =>
@@ -205,13 +304,23 @@ if (typeof module !== "undefined") {
     labelForPath,
     normalizeSearchText,
     compactSearchText,
+    searchIndex,
     isSubsequence,
     levenshteinAtMost,
     fuzzyDistanceForToken,
     textMatches,
+    textMatchesIndex,
+    searchIndexesMatch,
     itemSearchHaystack,
+    itemSearchIndex,
     loadRows,
     itemMatches,
+    matchingIndices,
+    positionsForIndices,
+    wrappedIndex,
+    nearestWrappedCursor,
+    carouselRelativeForSlot,
+    carouselPositionForSlot,
     firstMatchingIndex,
     filteredPosition,
     selectedFilteredPosition,

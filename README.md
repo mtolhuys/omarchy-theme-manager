@@ -33,9 +33,12 @@
   `Ctrl+W`; **Browse** stays on the right next to Icons.
 - **Theme catalog** — sticky filters (listing / availability / sort / min stars)
   in `~/.config/omarchy/theme-catalog-filters.json` (includes last search query),
-  fuzzy search, safe install/uninstall with confirmations, official Omarchy badge.
+  indexed fuzzy search, safe install/uninstall with confirmations, official
+  Omarchy badge. Rendering stays bounded to a small reusable delegate pool even
+  when the catalog reaches its 2,000-record input ceiling.
 - **Wallpaper picker** — favorites (`Ctrl+D`), live palette while browsing,
-  Actions hamburger (Save / All / Reset / Remove), Wallhaven via Aether.
+  Actions hamburger (Save / All / Reset / Remove), Wallhaven via Aether. Rapid
+  left/right navigation debounces palette extraction and reuses recent palettes.
 - **Wallhaven** — SFW search, sticky filters + last query in
   `~/.config/omarchy/wallhaven-filters.json`, load-more; downloads install into the
   theme backgrounds folder so they appear in the local carousel.
@@ -163,6 +166,7 @@ Acceptance testing belongs in the disposable plugin lab:
 ```bash
 cd ~/Projects/omarchy/plugin-lab
 ./bin/lab plugin ~/Projects/plugins/omarchy-theme-manager/tests/lab/acceptance.sh
+./bin/lab plugin ~/Projects/plugins/omarchy-theme-manager/tests/lab/performance.sh
 ./bin/lab plugin ~/Projects/plugins/omarchy-theme-manager/tests/lab/marketing-preview.sh
 ```
 
