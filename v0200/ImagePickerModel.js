@@ -45,37 +45,40 @@ const isSubsequence = (needle, haystack) => {
   return false
 }
 
+// One row of the edit-distance table; returns the smallest value in it.
+const levenshteinRow = (aChar, b, previous, current) => {
+  let rowMin = current[0]
+  for (let column = 1; column <= b.length; column++) {
+    const cost = aChar === b[column - 1] ? 0 : 1
+    current[column] = Math.min(
+      previous[column] + 1,
+      current[column - 1] + 1,
+      previous[column - 1] + cost
+    )
+    if (current[column] < rowMin) rowMin = current[column]
+  }
+  return rowMin
+}
+
+const levenshteinWithin = (a, b, limit) => {
+  const previous = new Array(b.length + 1)
+  const current = new Array(b.length + 1)
+  for (let index = 0; index <= b.length; index++) previous[index] = index
+  for (let row = 1; row <= a.length; row++) {
+    current[0] = row
+    if (levenshteinRow(a[row - 1], b, previous, current) > limit) return false
+    for (let column = 0; column <= b.length; column++) previous[column] = current[column]
+  }
+  return previous[b.length] <= limit
+}
+
 const levenshteinAtMost = (left, right, maxDistance) => {
   const a = stringValue(left)
   const b = stringValue(right)
   const limit = Math.max(0, Number(maxDistance) || 0)
   if (a === b) return true
   if (Math.abs(a.length - b.length) > limit) return false
-
-  const previous = new Array(b.length + 1)
-  const current = new Array(b.length + 1)
-  for (let index = 0; index <= b.length; index++) previous[index] = index
-
-  for (let row = 1; row <= a.length; row++) {
-    current[0] = row
-    let rowMin = current[0]
-    const aChar = a[row - 1]
-
-    for (let column = 1; column <= b.length; column++) {
-      const cost = aChar === b[column - 1] ? 0 : 1
-      current[column] = Math.min(
-        previous[column] + 1,
-        current[column - 1] + 1,
-        previous[column - 1] + cost
-      )
-      if (current[column] < rowMin) rowMin = current[column]
-    }
-
-    if (rowMin > limit) return false
-    for (let column = 0; column <= b.length; column++) previous[column] = current[column]
-  }
-
-  return previous[b.length] <= limit
+  return levenshteinWithin(a, b, limit)
 }
 
 const fuzzyDistanceForToken = (token) => {
@@ -84,6 +87,21 @@ const fuzzyDistanceForToken = (token) => {
   if (length >= 4) return 1
   return 0
 }
+
+// Prefer prefix/containment of meaningful word fragments inside the token.
+const wordFragmentMatches = (needle, word) =>
+  word.length >= 3 && needle.includes(word) && needle.length <= word.length + 2
+
+// Per-token fuzzy: subsequence or bounded edit distance on a single word.
+const wordFuzzyMatches = (needle, word, maxDistance) => {
+  if (needle.length >= 3 && isSubsequence(needle, word)) return true
+  return maxDistance > 0 && word.length >= 4 && levenshteinAtMost(needle, word, maxDistance)
+}
+
+const wordMatchesToken = (needle, word, maxDistance) =>
+  word.includes(needle) ||
+  wordFragmentMatches(needle, word) ||
+  wordFuzzyMatches(needle, word, maxDistance)
 
 const tokenMatchesHaystack = (token, hayNormalized, hayCompact, hayWords) => {
   const needle = stringValue(token)
@@ -95,51 +113,46 @@ const tokenMatchesHaystack = (token, hayNormalized, hayCompact, hayWords) => {
 
   const words = Array.isArray(hayWords) ? hayWords : hayNormalized.split(" ").filter(Boolean)
   const maxDistance = fuzzyDistanceForToken(needle)
-  for (const word of words) {
-    if (word.includes(needle)) return true
-    // Prefer prefix/containment of meaningful word fragments inside the token.
-    if (word.length >= 3 && needle.includes(word) && needle.length <= word.length + 2) return true
-    // Per-token fuzzy: subsequence or bounded edit distance on a single word.
-    if (needle.length >= 3 && isSubsequence(needle, word)) return true
-    if (maxDistance > 0 && word.length >= 4 && levenshteinAtMost(needle, word, maxDistance))
-      return true
-  }
-
-  return false
+  return words.some((word) => wordMatchesToken(needle, word, maxDistance))
 }
+
+// Soft fallback: require all but one token when the query is long enough.
+// Avoids false negatives on multi-word names with a single typo token.
+const allButOneTokenMatches = (tokens, hay) => {
+  if (tokens.length < 3) return false
+  let misses = 0
+  for (const token of tokens) {
+    if (!tokenMatchesHaystack(token, hay.normalized, hay.compact, hay.words)) misses += 1
+    if (misses > 1) return false
+  }
+  return true
+}
+
+const haystackFields = (haystackIndex) => {
+  const hay = haystackIndex || searchIndex("")
+  return {
+    normalized: stringValue(hay.normalized),
+    compact: stringValue(hay.compact),
+    words: Array.isArray(hay.words) ? hay.words : undefined
+  }
+}
+
+const everyTokenMatches = (tokens, hay) =>
+  tokens.every((token) => tokenMatchesHaystack(token, hay.normalized, hay.compact, hay.words))
+
+// Whole-phrase / compact hits before token AND (multi-word & hyphen-insensitive).
+const phraseMatches = (query, hay) =>
+  hay.normalized.includes(query.normalized) ||
+  Boolean(query.compact && hay.compact.includes(query.compact))
 
 const searchIndexesMatch = (haystackIndex, queryIndex) => {
   const query = queryIndex || searchIndex("")
-  const needle = query.normalized
-  if (!needle) return true
-
-  const hay = haystackIndex || searchIndex("")
-  const hayNormalized = stringValue(hay.normalized)
-  const hayCompact = stringValue(hay.compact)
-  const hayWords = Array.isArray(hay.words) ? hay.words : undefined
-  const compactNeedle = query.compact
-
-  // Whole-phrase / compact hits before token AND (multi-word & hyphen-insensitive).
-  if (hayNormalized.includes(needle)) return true
-  if (compactNeedle && hayCompact.includes(compactNeedle)) return true
-
-  const tokens = needle.split(" ").filter(Boolean)
+  if (!query.normalized) return true
+  const hay = haystackFields(haystackIndex)
+  if (phraseMatches(query, hay)) return true
+  const tokens = query.normalized.split(" ").filter(Boolean)
   if (tokens.length === 0) return true
-  if (tokens.every((token) => tokenMatchesHaystack(token, hayNormalized, hayCompact, hayWords)))
-    return true
-
-  // Soft fallback: require all but one token when the query is long enough.
-  // Avoids false negatives on multi-word names with a single typo token.
-  if (tokens.length >= 3) {
-    let misses = 0
-    for (const token of tokens) {
-      if (!tokenMatchesHaystack(token, hayNormalized, hayCompact, hayWords)) misses += 1
-      if (misses > 1) return false
-    }
-    return true
-  }
-
-  return false
+  return everyTokenMatches(tokens, hay) || allButOneTokenMatches(tokens, hay)
 }
 
 const textMatchesIndex = (haystackIndex, filterText) =>
@@ -241,28 +254,28 @@ const nearestWrappedCursor = (cursor, position, count) => {
   return target + Math.round((current - target) / length) * length
 }
 
-const carouselRelativeForSlot = (slot, cursor, count, poolSize) => {
-  const length = Math.max(0, Number(count) || 0)
-  const size = Math.max(1, Math.floor(Number(poolSize) || 1))
-  const poolSlot = Math.floor(Number(slot) || 0)
-  if (poolSlot < 0 || poolSlot >= size || length === 0) return null
-
-  if (length <= size) {
-    if (poolSlot >= length) return null
-    const selected = wrappedIndex(cursor, length)
-    let relative = poolSlot - selected
-    const half = Math.floor(length / 2)
-    if (relative > half) relative -= length
-    else if (relative < -half) relative += length
-    return relative
-  }
-
-  const selectedSlot = wrappedIndex(cursor, size)
-  let relative = poolSlot - selectedSlot
-  const half = Math.floor(size / 2)
-  if (relative > half) relative -= size
-  else if (relative < -half) relative += size
+// The signed distance from the selected slot to a slot, taking the shorter way round a ring.
+const ringRelative = (slot, selected, ringSize) => {
+  const relative = slot - selected
+  const half = Math.floor(ringSize / 2)
+  if (relative > half) return relative - ringSize
+  if (relative < -half) return relative + ringSize
   return relative
+}
+
+const carouselShape = (slot, count, poolSize) => ({
+  length: Math.max(0, Number(count) || 0),
+  size: Math.max(1, Math.floor(Number(poolSize) || 1)),
+  poolSlot: Math.floor(Number(slot) || 0)
+})
+
+const carouselRelativeForSlot = (slot, cursor, count, poolSize) => {
+  const { length, size, poolSlot } = carouselShape(slot, count, poolSize)
+  if (poolSlot < 0 || poolSlot >= size || length === 0) return null
+  // A carousel that fits inside the pool maps slots onto positions directly.
+  if (length > size) return ringRelative(poolSlot, wrappedIndex(cursor, size), size)
+  if (poolSlot >= length) return null
+  return ringRelative(poolSlot, wrappedIndex(cursor, length), length)
 }
 
 const carouselPositionForSlot = (slot, cursor, count, poolSize) => {

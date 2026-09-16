@@ -23,19 +23,20 @@ const safeIconName = (value) => {
 
 const emptyState = () => ({ version: stateVersion, themes: {} })
 
+const isPlainObject = (value) =>
+  Boolean(value) && typeof value === "object" && !Array.isArray(value)
+
+// The entry's safe fields only; null when nothing survives.
 const normalizeThemeEntry = (entry) => {
-  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null
-
-  const wallpaper = safePath(entry.wallpaper)
-  const icons = safeIconName(entry.icons)
-  const iconsDefault = safeIconName(entry.iconsDefault)
-  if (!wallpaper && !icons && !iconsDefault) return null
-
+  if (!isPlainObject(entry)) return null
+  const fields = {
+    wallpaper: safePath(entry.wallpaper),
+    icons: safeIconName(entry.icons),
+    iconsDefault: safeIconName(entry.iconsDefault)
+  }
   const normalized = {}
-  if (wallpaper) normalized.wallpaper = wallpaper
-  if (icons) normalized.icons = icons
-  if (iconsDefault) normalized.iconsDefault = iconsDefault
-  return normalized
+  for (const key of Object.keys(fields)) if (fields[key]) normalized[key] = fields[key]
+  return Object.keys(normalized).length > 0 ? normalized : null
 }
 
 const normalizeThemes = (themes) => {
@@ -151,12 +152,14 @@ const rememberedIconsDefault = (state, themeName) => {
 const hasWallpaperOverride = (state, themeName) => !!rememberedWallpaper(state, themeName)
 const hasIconsOverride = (state, themeName) => !!rememberedIcons(state, themeName)
 
+const isPlainBasename = (base) =>
+  Boolean(base) && base !== "." && base !== ".." && !base.includes("/") && !base.includes("\0")
+
 const imageBasename = (path) => {
   const target = safePath(path)
   if (!target) return ""
   const base = target.split("/").pop() || ""
-  if (!base || base === "." || base === ".." || base.includes("/") || base.includes("\0")) return ""
-  return base
+  return isPlainBasename(base) ? base : ""
 }
 
 const homePath = (home) => {

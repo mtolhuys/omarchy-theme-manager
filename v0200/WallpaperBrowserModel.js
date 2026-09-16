@@ -77,22 +77,25 @@ const isWallpaperPickerRequest = (imageDirs, rows) => {
 const optionForValue = (options, value) =>
   options.find((option) => option.value === stringValue(value))
 
+const optionOrDefault = (options, value, fallback) =>
+  optionForValue(options, value) ? value : fallback
+
+const normalizeCategories = (value) => {
+  const categories = stringValue(value)
+  return categoryPattern.test(categories) && categories !== "000" ? categories : "111"
+}
+
 const normalizeFilters = (filters) => {
   const input = filters && typeof filters === "object" ? filters : {}
-  const categories = stringValue(input.categories)
-  const sorting = stringValue(input.sorting)
-  const order = stringValue(input.order)
   const atLeast = Object.prototype.hasOwnProperty.call(input, "atLeast")
     ? stringValue(input.atLeast)
     : "1920x1080"
-  const colors = stringValue(input.colors).toLowerCase()
-
   return {
-    categories: categoryPattern.test(categories) && categories !== "000" ? categories : "111",
-    sorting: optionForValue(sortingOptions, sorting) ? sorting : "date_added",
-    order: optionForValue(orderOptions, order) ? order : "desc",
-    atLeast: optionForValue(resolutionOptions, atLeast) ? atLeast : "1920x1080",
-    colors: optionForValue(colorOptions, colors) ? colors : ""
+    categories: normalizeCategories(input.categories),
+    sorting: optionOrDefault(sortingOptions, stringValue(input.sorting), "date_added"),
+    order: optionOrDefault(orderOptions, stringValue(input.order), "desc"),
+    atLeast: optionOrDefault(resolutionOptions, atLeast, "1920x1080"),
+    colors: optionOrDefault(colorOptions, stringValue(input.colors).toLowerCase(), "")
   }
 }
 
@@ -199,30 +202,30 @@ const getSortingOptions = () => cloneOptions(sortingOptions)
 const getResolutionOptions = () => cloneOptions(resolutionOptions)
 const getColorOptions = () => cloneOptions(colorOptions)
 
-const searchArguments = (query, page = 1, pages = 2, filters = {}) => {
-  const normalizedFilters = effectiveSearchFilters(query, filters)
-  const args = [
-    "aether",
-    "--wallhaven-thumbs",
-    "--json",
-    "--pages",
-    String(Math.max(1, Math.min(4, integerValue(pages, 2)))),
-    "--categories",
-    normalizedFilters.categories,
-    "--purity",
-    "100",
-    "--sorting",
-    normalizedFilters.sorting,
-    "--order",
-    normalizedFilters.order,
-    "--page",
-    String(Math.max(1, integerValue(page, 1)))
-  ]
+const boundedPages = (pages) => String(Math.max(1, Math.min(4, integerValue(pages, 2))))
+const boundedPage = (page) => String(Math.max(1, integerValue(page, 1)))
+
+const filterArguments = (normalizedFilters) => {
+  const args = ["--categories", normalizedFilters.categories, "--purity", "100"]
+  args.push("--sorting", normalizedFilters.sorting, "--order", normalizedFilters.order)
+  return args
+}
+
+const optionalSearchArguments = (normalizedFilters, query) => {
+  const args = []
   if (normalizedFilters.atLeast) args.push("--at-least", normalizedFilters.atLeast)
   if (normalizedFilters.colors) args.push("--colors", normalizedFilters.colors)
   const normalizedQuery = normalizeQuery(query)
   if (normalizedQuery) args.push(normalizedQuery)
   return args
+}
+
+const searchArguments = (query, page = 1, pages = 2, filters = {}) => {
+  const normalizedFilters = effectiveSearchFilters(query, filters)
+  return ["aether", "--wallhaven-thumbs", "--json", "--pages", boundedPages(pages)]
+    .concat(filterArguments(normalizedFilters))
+    .concat(["--page", boundedPage(page)])
+    .concat(optionalSearchArguments(normalizedFilters, query))
 }
 
 const downloadArguments = (id) =>
@@ -244,23 +247,28 @@ const safeThumbnailPath = (path, cacheHome) => {
     : ""
 }
 
+const wallpaperFacts = (wallpaper) => ({
+  id: stringValue(wallpaper.id),
+  resolution: stringValue(wallpaper.resolution).slice(0, 32),
+  category: stringValue(wallpaper.category).slice(0, 24),
+  purity: stringValue(wallpaper.purity).slice(0, 24)
+})
+
+const isListableWallpaper = (facts) =>
+  wallpaperIdPattern.test(facts.id) &&
+  wallpaperCategories.includes(facts.category) &&
+  facts.purity === "sfw"
+
 const wallpaperRow = (wallpaper, cacheHome) => {
   if (!wallpaper || typeof wallpaper !== "object") return null
-
-  const id = stringValue(wallpaper.id)
-  if (!wallpaperIdPattern.test(id)) return null
-
-  const resolution = stringValue(wallpaper.resolution).slice(0, 32)
-  const category = stringValue(wallpaper.category).slice(0, 24)
-  const purity = stringValue(wallpaper.purity).slice(0, 24)
-  if (!wallpaperCategories.includes(category) || purity !== "sfw") return null
-  const thumbnailPath = safeThumbnailPath(wallpaper.thumbnailPath, cacheHome)
-
+  const facts = wallpaperFacts(wallpaper)
+  if (!isListableWallpaper(facts)) return null
+  const { id, resolution, category, purity } = facts
   return {
     id,
     filePath: "wallhaven:" + id,
     fileName: "wallhaven-" + id,
-    thumbnailPath,
+    thumbnailPath: safeThumbnailPath(wallpaper.thumbnailPath, cacheHome),
     displayName: "Wallhaven " + id,
     resolution,
     category,
@@ -269,60 +277,60 @@ const wallpaperRow = (wallpaper, cacheHome) => {
   }
 }
 
-const parseSearchResponse = (text, cacheHome) => {
-  const responseText = stringValue(text)
-  if (responseText.length > maxSearchResponseLength) {
-    return {
-      error: "Aether returned an oversized Wallhaven response",
-      rows: [],
-      meta: {}
-    }
-  }
+const searchFailure = (error) => ({ error, rows: [], meta: {} })
 
-  let payload
+const parsedJson = (text) => {
   try {
-    payload = JSON.parse(responseText)
+    return { payload: JSON.parse(text) }
   } catch (_error) {
-    return {
-      error: "Aether returned an invalid Wallhaven response",
-      rows: [],
-      meta: {}
-    }
+    return { payload: null, invalid: true }
   }
+}
 
+// The first thing wrong with a Wallhaven search payload, or "" when it can be read.
+const searchPayloadError = (responseText, parsed) => {
+  if (responseText.length > maxSearchResponseLength)
+    return "Aether returned an oversized Wallhaven response"
+  if (parsed.invalid) return "Aether returned an invalid Wallhaven response"
+  const payload = parsed.payload
   if (!payload || typeof payload !== "object" || !Array.isArray(payload.wallpapers)) {
-    return {
-      error: "Aether returned an incomplete Wallhaven response",
-      rows: [],
-      meta: {}
-    }
+    return "Aether returned an incomplete Wallhaven response"
   }
-  if (payload.wallpapers.length > maxWallpapersPerResponse) {
-    return {
-      error: "Aether returned too many Wallhaven records",
-      rows: [],
-      meta: {}
-    }
-  }
+  if (payload.wallpapers.length > maxWallpapersPerResponse)
+    return "Aether returned too many Wallhaven records"
+  return ""
+}
 
+const uniqueWallpaperRows = (wallpapers, cacheHome) => {
   const seen = {}
-  const rows = payload.wallpapers.reduce((result, wallpaper) => {
+  return wallpapers.reduce((result, wallpaper) => {
     const row = wallpaperRow(wallpaper, cacheHome)
     if (!row || seen[row.id]) return result
     seen[row.id] = true
     result.push(row)
     return result
   }, [])
-  const meta = payload.meta && typeof payload.meta === "object" ? payload.meta : {}
+}
 
+const searchMeta = (payload) => {
+  const meta = payload.meta && typeof payload.meta === "object" ? payload.meta : {}
+  return {
+    currentPage: integerValue(meta.current_page),
+    lastPage: integerValue(meta.last_page),
+    total: integerValue(meta.total)
+  }
+}
+
+const parseSearchResponse = (text, cacheHome) => {
+  const responseText = stringValue(text)
+  const parsed =
+    responseText.length > maxSearchResponseLength ? { payload: null } : parsedJson(responseText)
+  const error = searchPayloadError(responseText, parsed)
+  if (error) return searchFailure(error)
   return {
     error: "",
-    rows,
-    meta: {
-      currentPage: integerValue(meta.current_page),
-      lastPage: integerValue(meta.last_page),
-      total: integerValue(meta.total)
-    }
+    rows: uniqueWallpaperRows(parsed.payload.wallpapers, cacheHome),
+    meta: searchMeta(parsed.payload)
   }
 }
 
@@ -342,37 +350,32 @@ const appendUniqueRows = (existingRows, incomingRows) => {
   return combined
 }
 
+const isDownloadedWallpaperPath = (path, home, dataRoot) => {
+  const expectedPrefix = dataRoot + "/aether/wallpapers/"
+  return (
+    home.startsWith("/") &&
+    dataRoot.startsWith("/") &&
+    path.startsWith(expectedPrefix) &&
+    !path.slice(expectedPrefix.length).includes("/") &&
+    !path.includes("\u0000") &&
+    imagePathPattern.test(path)
+  )
+}
+
 const parseDownloadResponse = (text, homeDir, dataHome) => {
   const responseText = stringValue(text)
   if (responseText.length > maxDownloadResponseLength) {
-    return {
-      error: "Aether returned an oversized download response",
-      path: ""
-    }
+    return { error: "Aether returned an oversized download response", path: "" }
   }
-
-  let payload
-  try {
-    payload = JSON.parse(responseText)
-  } catch (_error) {
-    return { error: "Aether returned an invalid download response", path: "" }
-  }
+  const parsed = parsedJson(responseText)
+  if (parsed.invalid) return { error: "Aether returned an invalid download response", path: "" }
 
   const home = stringValue(homeDir).replace(/\/+$/, "")
   const dataRoot = (stringValue(dataHome) || home + "/.local/share").replace(/\/+$/, "")
-  const path = stringValue(payload && payload.path)
-  const expectedPrefix = dataRoot + "/aether/wallpapers/"
-  if (
-    !home.startsWith("/") ||
-    !dataRoot.startsWith("/") ||
-    !path.startsWith(expectedPrefix) ||
-    path.slice(expectedPrefix.length).includes("/") ||
-    path.includes("\u0000") ||
-    !imagePathPattern.test(path)
-  ) {
+  const path = stringValue(parsed.payload && parsed.payload.path)
+  if (!isDownloadedWallpaperPath(path, home, dataRoot)) {
     return { error: "Aether returned an unexpected wallpaper path", path: "" }
   }
-
   return { error: "", path }
 }
 

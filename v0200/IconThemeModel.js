@@ -40,29 +40,34 @@ const loadInventoryRows = (text) => {
     }, [])
 }
 
+const iconPreviewPaths = (theme) => {
+  const folder = safeIconPath(theme && theme.folder)
+  const app = safeIconPath(theme && theme.app)
+  const mime = safeIconPath(theme && theme.mime)
+  return { folder, app, mime, preview: folder || app || mime }
+}
+
+const carouselRow = (theme, selected) => {
+  const name = stringValue(theme && theme.name).trim()
+  const paths = iconPreviewPaths(theme)
+  return {
+    filePath: paths.preview || name,
+    fileName: name,
+    thumbnailPath: paths.preview,
+    displayName: labelForIconTheme(name),
+    searchText: [name, labelForIconTheme(name)].join(" "),
+    iconTheme: name,
+    previewFolder: paths.folder,
+    previewApp: paths.app,
+    previewMime: paths.mime,
+    current: selected !== "" && selected === name
+  }
+}
+
 const carouselRows = (themes, currentName = "") => {
   const selected = stringValue(currentName).trim()
   const values = Array.isArray(themes) ? themes : []
-
-  return values.map((theme) => {
-    const name = stringValue(theme && theme.name).trim()
-    const folder = safeIconPath(theme && theme.folder)
-    const app = safeIconPath(theme && theme.app)
-    const mime = safeIconPath(theme && theme.mime)
-    const preview = folder || app || mime
-    return {
-      filePath: preview || name,
-      fileName: name,
-      thumbnailPath: preview,
-      displayName: labelForIconTheme(name),
-      searchText: [name, labelForIconTheme(name)].join(" "),
-      iconTheme: name,
-      previewFolder: folder,
-      previewApp: app,
-      previewMime: mime,
-      current: selected !== "" && selected === name
-    }
-  })
+  return values.map((theme) => carouselRow(theme, selected))
 }
 
 const indexForIconTheme = (rows, themeName) => {

@@ -76,85 +76,101 @@ const installConfirmationMessage = (entry) => {
   return `Install “${name}” from a sanitized, exact repository snapshot? Only its palette and bounded wallpaper images are imported; scripts and application configs are ignored. Omarchy applies the theme immediately.`
 }
 
+const catalogContext = (data, inventory) => ({
+  installedThemes: objectValue(inventory.installedThemes),
+  stockThemes: objectValue(inventory.stockThemes),
+  installedRepositories: repositoryKeyMap(inventory.installedRepositories),
+  officialRepositories: repositoryKeyMap(data.officialRepositories)
+})
+
+const plainTextList = (value, maximumLength) =>
+  parsedArray(value)
+    .map((item) => plainTextValue(item, maximumLength))
+    .filter(Boolean)
+
+const searchFields = (row) => {
+  const searchText = [
+    row.displayName,
+    row.owner,
+    row.description,
+    row.installSlug,
+    row.repositoryUrl,
+    row.apps.join(" ")
+  ]
+    .join(" ")
+    .toLowerCase()
+  const searchNormalized = searchText
+    .replace(/[-_./]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+  return {
+    searchText,
+    searchNormalized,
+    searchCompact: searchNormalized.replace(/\s+/g, ""),
+    searchWords: searchNormalized.split(" ").filter(Boolean)
+  }
+}
+
+// The sanitized display values of one catalog entry, independent of the local inventory.
+const catalogEntryFields = (entry, installSlug) => ({
+  thumbnailPath: safePreviewUrl(entry.previewUrl || entry.preview_url),
+  displayName: plainTextValue(entry.name || installSlug, 120),
+  owner: plainTextValue(entry.owner || entry.github_owner, 80),
+  description: plainTextValue(entry.description, 500),
+  stars: Number(entry.stars) || 0,
+  apps: plainTextList(entry.apps || entry.apps_json, 80),
+  warnings: plainTextList(entry.securityWarnings || entry.security_warnings, 180)
+})
+
+const catalogRow = (entry, repositoryUrl, installSlug, context) => {
+  const installed =
+    context.installedThemes[installSlug] === true ||
+    context.installedRepositories[repositoryUrl] === true
+  const stockConflict = context.stockThemes[installSlug] === true
+  const row = Object.assign(
+    { filePath: repositoryUrl, fileName: `${installSlug}.webp`, installSlug, repositoryUrl },
+    catalogEntryFields(entry, installSlug),
+    {
+      official: context.officialRepositories[repositoryUrl] === true,
+      installed,
+      stockConflict,
+      canInstall: !installed && !stockConflict,
+      status: displayStatus({ installed, stockConflict })
+    }
+  )
+  return Object.assign(row, searchFields(row))
+}
+
+// A repository listed twice keeps one row: official if either listing is, with the higher star count.
+const mergeDuplicate = (existing, entry, context, repositoryUrl) => {
+  existing.official = existing.official || context.officialRepositories[repositoryUrl] === true
+  existing.stars = Math.max(existing.stars, Number(entry.stars) || 0)
+}
+
+const compareCatalogOrder = (left, right) => {
+  if (left.canInstall !== right.canInstall) return left.canInstall ? -1 : 1
+  if (left.official !== right.official) return left.official ? -1 : 1
+  if (left.stars !== right.stars) return right.stars - left.stars
+  return left.displayName.localeCompare(right.displayName)
+}
+
 const catalogRows = (payload, inventory = {}) => {
   const data = objectValue(payload)
-  const installedThemes = objectValue(inventory.installedThemes)
-  const stockThemes = objectValue(inventory.stockThemes)
-  const installedRepositories = repositoryKeyMap(inventory.installedRepositories)
-  const officialRepositories = repositoryKeyMap(data.officialRepositories)
+  const context = catalogContext(data, inventory)
   const rowsByRepository = {}
 
   for (const entry of arrayValue(data.themes)) {
     const repositoryUrl = normalizeRepositoryUrl(entry.repositoryUrl || entry.github_url)
     const installSlug = installSlugForRepositoryUrl(repositoryUrl)
     if (!repositoryUrl || !isSafeThemeSlug(installSlug)) continue
-
-    const installed =
-      installedThemes[installSlug] === true || installedRepositories[repositoryUrl] === true
-    const stockConflict = stockThemes[installSlug] === true
-    const official = officialRepositories[repositoryUrl] === true
-    const warnings = parsedArray(entry.securityWarnings || entry.security_warnings)
-      .map((warning) => plainTextValue(warning, 180))
-      .filter(Boolean)
-    const apps = parsedArray(entry.apps || entry.apps_json)
-      .map((app) => plainTextValue(app, 80))
-      .filter(Boolean)
-    const stars = Number(entry.stars) || 0
     const existing = rowsByRepository[repositoryUrl]
-
-    if (existing) {
-      existing.official = existing.official || official
-      existing.stars = Math.max(existing.stars, stars)
-      continue
-    }
-
-    const name = plainTextValue(entry.name || installSlug, 120)
-    const owner = plainTextValue(entry.owner || entry.github_owner, 80)
-    const description = plainTextValue(entry.description, 500)
-    const previewUrl = safePreviewUrl(entry.previewUrl || entry.preview_url)
-
-    const canInstall = !installed && !stockConflict
-
-    const searchText = [name, owner, description, installSlug, repositoryUrl, apps.join(" ")]
-      .join(" ")
-      .toLowerCase()
-    const searchNormalized = searchText
-      .replace(/[-_./]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-
-    rowsByRepository[repositoryUrl] = {
-      filePath: repositoryUrl,
-      fileName: `${installSlug}.webp`,
-      thumbnailPath: previewUrl,
-      displayName: name,
-      installSlug,
-      repositoryUrl,
-      owner,
-      description,
-      stars,
-      apps,
-      warnings,
-      official,
-      installed,
-      stockConflict,
-      canInstall,
-      status: displayStatus({ installed, stockConflict }),
-      searchText,
-      searchNormalized,
-      searchCompact: searchNormalized.replace(/\s+/g, ""),
-      searchWords: searchNormalized.split(" ").filter(Boolean)
-    }
+    if (existing) mergeDuplicate(existing, entry, context, repositoryUrl)
+    else rowsByRepository[repositoryUrl] = catalogRow(entry, repositoryUrl, installSlug, context)
   }
 
   return Object.keys(rowsByRepository)
     .map((key) => rowsByRepository[key])
-    .sort((left, right) => {
-      if (left.canInstall !== right.canInstall) return left.canInstall ? -1 : 1
-      if (left.official !== right.official) return left.official ? -1 : 1
-      if (left.stars !== right.stars) return right.stars - left.stars
-      return left.displayName.localeCompare(right.displayName)
-    })
+    .sort(compareCatalogOrder)
 }
 
 const listingOptions = [
@@ -255,20 +271,25 @@ const catalogFilterSummary = (filters) => {
   return parts.length > 0 ? parts.join("  ·  ") : "All themes"
 }
 
+const matchesListing = (row, listing) => {
+  if (listing === "official") return Boolean(row.official)
+  if (listing === "community") return !row.official
+  return true
+}
+
+const matchesAvailability = (row, availability) => {
+  if (availability === "installable") return Boolean(row.canInstall)
+  if (availability === "installed") return Boolean(row.installed)
+  if (availability === "conflicts") return Boolean(row.stockConflict)
+  return true
+}
+
 const itemMatchesCatalogFilters = (item, filters) => {
   const row = objectValue(item)
   const normalized = normalizeCatalogFilters(filters)
-
-  if (normalized.listing === "official" && !row.official) return false
-  if (normalized.listing === "community" && row.official) return false
-
-  if (normalized.availability === "installable" && !row.canInstall) return false
-  if (normalized.availability === "installed" && !row.installed) return false
-  if (normalized.availability === "conflicts" && !row.stockConflict) return false
-
-  const stars = Number(row.stars) || 0
-  if (stars < normalized.minStars) return false
-  return true
+  if (!matchesListing(row, normalized.listing)) return false
+  if (!matchesAvailability(row, normalized.availability)) return false
+  return (Number(row.stars) || 0) >= normalized.minStars
 }
 
 const compareCatalogRows = (left, right, sort) => {
