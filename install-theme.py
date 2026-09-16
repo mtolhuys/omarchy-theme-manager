@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Install one exact, bundled theme snapshot through a data-only boundary."""
 
+import functools
 import gzip
+import itertools
 import json
 import os
 import re
@@ -450,6 +452,91 @@ def advertised_head(data):
     return head
 
 
+def archive_member_path(member, expected_root):
+    if member.size < 0:
+        fail("Theme archive contains an invalid entry size")
+    if len(member.name.encode("utf-8")) > MAX_ARCHIVE_PATH_BYTES:
+        fail("Theme archive path is too long")
+    parts = member.name.rstrip("/").split("/")
+    if (
+        not parts
+        or parts[0].casefold() != expected_root.casefold()
+        or any(part in {"", ".", ".."} for part in parts)
+    ):
+        fail("Theme archive contains an invalid path")
+    relative = "/".join(parts[1:])
+    if not relative and not member.isdir():
+        fail("Theme archive root is not a directory")
+    return relative
+
+
+def collect_inventory_entry(entries, _stream, member, relative):
+    root_file = relative in {"colors.toml", "alacritty.toml", "preview.png"}
+    background = (
+        relative.startswith("backgrounds/")
+        and relative.count("/") == 1
+        and SAFE_IMAGE_NAME.fullmatch(relative.removeprefix("backgrounds/"))
+    )
+    if not root_file and not background:
+        return
+    if background and not member.isfile():
+        return
+    if relative in entries:
+        fail(f"Duplicate theme archive entry: {relative}")
+    if not member.isfile():
+        fail(f"Theme path is not a regular file: {relative}")
+    entries[relative] = {"size": member.size}
+
+
+def validate_inventory(entries):
+    for path in ("colors.toml", "alacritty.toml"):
+        if path in entries and entries[path]["size"] > MAX_PALETTE_BYTES:
+            fail(f"Oversized theme file: {path}")
+    if entries.get("preview.png", {}).get("size", 0) > MAX_IMAGE_BYTES:
+        fail("Oversized theme file: preview.png")
+    backgrounds = sorted(
+        (path for path in entries if path.startswith("backgrounds/")),
+        key=str.casefold,
+    )
+    for path in backgrounds[MAX_IMAGES:]:
+        del entries[path]
+    image_total = entries.get("preview.png", {}).get("size", 0)
+    for path in backgrounds[:MAX_IMAGES]:
+        size = entries[path]["size"]
+        if size > MAX_IMAGE_BYTES:
+            fail(f"Oversized theme file: {path}")
+        image_total += size
+    if image_total > MAX_IMAGE_TOTAL_BYTES:
+        fail("Theme images exceed the safe total size limit")
+
+
+def copy_declared_bytes(source, output, relative, remaining):
+    while remaining:
+        chunk = source.read(min(64 * 1024, remaining))
+        if not chunk:
+            fail(f"Theme archive entry is incomplete: {relative}")
+        output.write(chunk)
+        remaining -= len(chunk)
+    if source.read(1):
+        fail(f"Theme archive entry exceeds its declared size: {relative}")
+
+
+def copy_archive_entry(entries, pending, storage, counter, stream, member, relative):
+    if relative not in pending:
+        return
+    if not member.isfile() or member.size != entries[relative]["size"]:
+        fail(f"Theme archive entry changed while reading: {relative}")
+    source = stream.extractfile(member)
+    if source is None:
+        fail(f"Theme archive entry cannot be read: {relative}")
+    destination = storage / f"entry-{next(counter)}"
+    with source, destination.open("xb") as output:
+        copy_declared_bytes(source, output, relative, member.size)
+    os.chmod(destination, 0o600)
+    entries[relative]["file"] = destination
+    pending.remove(relative)
+
+
 class Snapshot:
     """Read selected regular files from one bounded, commit-pinned archive."""
 
@@ -468,34 +555,19 @@ class Snapshot:
 
     def walk(self, archive, visitor):
         expected_root = f"{self.name}-{self.commit}"
-        count = 0
         declared = 0
         with archive.open("rb") as compressed:
             with gzip.GzipFile(fileobj=compressed, mode="rb") as expanded:
                 bounded = BoundedReader(expanded, MAX_ARCHIVE_EXPANDED_BYTES, self.downloader.deadline)
                 with tarfile.open(fileobj=bounded, mode="r|") as stream:
-                    for member in stream:
-                        count += 1
+                    for count, member in enumerate(stream, start=1):
                         if count > MAX_ARCHIVE_MEMBERS:
                             fail("Theme archive contains too many entries")
-                        if member.size < 0:
-                            fail("Theme archive contains an invalid entry size")
                         declared += member.size
                         if declared > MAX_ARCHIVE_EXPANDED_BYTES:
                             fail("Theme archive exceeds its expanded byte limit")
-                        if len(member.name.encode("utf-8")) > MAX_ARCHIVE_PATH_BYTES:
-                            fail("Theme archive path is too long")
-                        parts = member.name.rstrip("/").split("/")
-                        if (
-                            not parts
-                            or parts[0].casefold() != expected_root.casefold()
-                            or any(part in {"", ".", ".."} for part in parts)
-                        ):
-                            fail("Theme archive contains an invalid path")
-                        relative = "/".join(parts[1:])
+                        relative = archive_member_path(member, expected_root)
                         if not relative:
-                            if not member.isdir():
-                                fail("Theme archive root is not a directory")
                             continue
                         visitor(stream, member, relative)
                 while bounded.read(64 * 1024):
@@ -503,77 +575,20 @@ class Snapshot:
 
     def inventory(self, archive):
         entries = {}
-
-        def inspect(_stream, member, relative):
-            root_file = relative in {"colors.toml", "alacritty.toml", "preview.png"}
-            background = (
-                relative.startswith("backgrounds/")
-                and relative.count("/") == 1
-                and SAFE_IMAGE_NAME.fullmatch(relative.removeprefix("backgrounds/"))
-            )
-            if not root_file and not background:
-                return
-            if background and not member.isfile():
-                return
-            if relative in entries:
-                fail(f"Duplicate theme archive entry: {relative}")
-            if not member.isfile():
-                fail(f"Theme path is not a regular file: {relative}")
-            entries[relative] = {"size": member.size}
-
-        self.walk(archive, inspect)
-        for path in ("colors.toml", "alacritty.toml"):
-            if path in entries and entries[path]["size"] > MAX_PALETTE_BYTES:
-                fail(f"Oversized theme file: {path}")
-        if "preview.png" in entries and entries["preview.png"]["size"] > MAX_IMAGE_BYTES:
-            fail("Oversized theme file: preview.png")
-        backgrounds = sorted(
-            (path for path in entries if path.startswith("backgrounds/")),
-            key=str.casefold,
-        )
-        selected = set(backgrounds[:MAX_IMAGES])
-        for path in backgrounds[MAX_IMAGES:]:
-            del entries[path]
-        image_total = entries.get("preview.png", {}).get("size", 0)
-        for path in selected:
-            size = entries[path]["size"]
-            if size > MAX_IMAGE_BYTES:
-                fail(f"Oversized theme file: {path}")
-            image_total += size
-        if image_total > MAX_IMAGE_TOTAL_BYTES:
-            fail("Theme images exceed the safe total size limit")
+        self.walk(archive, functools.partial(collect_inventory_entry, entries))
+        validate_inventory(entries)
         return entries
 
     def extract(self, archive, storage):
         pending = set(self.entries)
-        counter = 0
-
-        def copy_selected(stream, member, relative):
-            nonlocal counter
-            if relative not in pending:
-                return
-            if not member.isfile() or member.size != self.entries[relative]["size"]:
-                fail(f"Theme archive entry changed while reading: {relative}")
-            source = stream.extractfile(member)
-            if source is None:
-                fail(f"Theme archive entry cannot be read: {relative}")
-            destination = storage / f"entry-{counter}"
-            counter += 1
-            remaining = member.size
-            with source, destination.open("xb") as output:
-                while remaining:
-                    chunk = source.read(min(64 * 1024, remaining))
-                    if not chunk:
-                        fail(f"Theme archive entry is incomplete: {relative}")
-                    output.write(chunk)
-                    remaining -= len(chunk)
-                if source.read(1):
-                    fail(f"Theme archive entry exceeds its declared size: {relative}")
-            os.chmod(destination, 0o600)
-            self.entries[relative]["file"] = destination
-            pending.remove(relative)
-
-        self.walk(archive, copy_selected)
+        visitor = functools.partial(
+            copy_archive_entry,
+            self.entries,
+            pending,
+            storage,
+            itertools.count(),
+        )
+        self.walk(archive, visitor)
         if pending:
             fail("Theme archive changed between validation and extraction")
 
