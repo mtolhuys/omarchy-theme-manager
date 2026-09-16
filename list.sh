@@ -6,27 +6,35 @@ index_file="$cache_dir/index.tsv"
 
 mkdir -p "$cache_dir"
 
+# The cached thumbnail hash for an image at a size:mtime signature, from the index or freshly derived.
+hash_for() {
+  local image=$1
+  local signature=$2
+  local hash
+  hash=$(awk -F '\t' -v path="$image" -v sig="$signature" '$1 == path && $2 == sig { print $3; exit }' "$index_file" 2>/dev/null)
+  [[ -n $hash ]] || hash=$(printf '%s\t%s' "$image" "$signature" | md5sum | cut -d ' ' -f 1)
+  printf '%s' "$hash"
+}
+
+# Older on-demand picker code keyed fallback thumbnails by file content.
+# Keep finding those if a user still has them cached.
+legacy_thumbnail_for() {
+  local image=$1
+  local legacy_hash
+  legacy_hash=$(md5sum "$image" 2>/dev/null | cut -d ' ' -f 1)
+  [[ -n $legacy_hash && -f $cache_dir/$legacy_hash.jpg ]] && printf '%s' "$cache_dir/$legacy_hash.jpg"
+  return 0
+}
+
 thumbnail_for() {
   local image="$1"
-  local signature hash thumbnail legacy_hash
+  local signature thumbnail
 
   signature=$(stat -Lc '%s:%Y' "$image") || return
-  hash=$(awk -F '\t' -v path="$image" -v sig="$signature" '$1 == path && $2 == sig { print $3; exit }' "$index_file" 2>/dev/null)
+  thumbnail="$cache_dir/$(hash_for "$image" "$signature").jpg"
+  [[ -f $thumbnail ]] || thumbnail=$(legacy_thumbnail_for "$image")
 
-  if [[ -z $hash ]]; then
-    hash=$(printf '%s\t%s' "$image" "$signature" | md5sum | cut -d ' ' -f 1)
-  fi
-
-  thumbnail="$cache_dir/$hash.jpg"
-
-  if [[ ! -f $thumbnail ]]; then
-    # Older on-demand picker code keyed fallback thumbnails by file content.
-    # Keep finding those if a user still has them cached.
-    legacy_hash=$(md5sum "$image" 2>/dev/null | cut -d ' ' -f 1)
-    [[ -n $legacy_hash && -f $cache_dir/$legacy_hash.jpg ]] && thumbnail="$cache_dir/$legacy_hash.jpg"
-  fi
-
-  if [[ -f $thumbnail ]]; then
+  if [[ -n $thumbnail && -f $thumbnail ]]; then
     printf '%s' "$thumbnail"
   else
     printf '%s' "$image"

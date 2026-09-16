@@ -139,21 +139,21 @@ def write_temporary(source_fd, backgrounds_fd, temporary_name):
         os.close(destination_fd)
 
 
+def link_within(directory_fd, source, target):
+    """Hard-link source to target inside one directory; False when target exists."""
+    try:
+        os.link(source, target, src_dir_fd=directory_fd, dst_dir_fd=directory_fd, follow_symlinks=False)
+    except FileExistsError:
+        return False
+    return True
+
+
 def link_unused_name(backgrounds_fd, temporary_name, base):
     """Hard-link the temporary file to the first free candidate name; returns that name."""
     name_max = os.fpathconf(backgrounds_fd, "PC_NAME_MAX")
     for candidate in candidate_names(base, name_max):
-        try:
-            os.link(
-                temporary_name,
-                candidate,
-                src_dir_fd=backgrounds_fd,
-                dst_dir_fd=backgrounds_fd,
-                follow_symlinks=False,
-            )
-        except FileExistsError:
-            continue
-        return candidate
+        if link_within(backgrounds_fd, temporary_name, candidate):
+            return candidate
     fail("Could not choose an unused wallpaper filename")
 
 
@@ -164,32 +164,50 @@ def remove_temporary(backgrounds_fd, temporary_name):
         pass
 
 
+class Staging:
+    """The temporary file inside the theme wallpaper directory, until it is linked into place."""
+
+    def __init__(self):
+        self.directory_fds = []
+        self.backgrounds_fd = -1
+        self.temporary_name = ""
+
+    def open(self, home, theme):
+        self.backgrounds_fd = open_theme_directory(home, theme, self.directory_fds)
+        self.temporary_name = f".theme-manager-{os.getpid()}-{secrets.token_hex(8)}.tmp"
+        return self.backgrounds_fd, self.temporary_name
+
+    def linked(self):
+        os.unlink(self.temporary_name, dir_fd=self.backgrounds_fd)
+        self.temporary_name = ""
+        os.fsync(self.backgrounds_fd)
+
+    def close(self):
+        if self.temporary_name and self.backgrounds_fd >= 0:
+            remove_temporary(self.backgrounds_fd, self.temporary_name)
+        for fd in reversed(self.directory_fds):
+            os.close(fd)
+
+
+def publish_from(source_fd, source_path, home, theme, base, staging):
+    verify_source(source_fd, source_path, home)
+    backgrounds_fd, temporary_name = staging.open(home, theme)
+    write_temporary(source_fd, backgrounds_fd, temporary_name)
+    candidate = link_unused_name(backgrounds_fd, temporary_name, base)
+    staging.linked()
+    return os.path.join(home, ".config", "omarchy", "backgrounds", theme, candidate)
+
+
 def publish(theme, source_path):
     validate_arguments(theme, source_path)
     home = require_home()
     base = wallpaper_basename(source_path)
-
-    open_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC
-    source_fd = os.open(source_path, open_flags)
-    directory_fds = []
-    temporary_name = ""
-    backgrounds_fd = -1
+    source_fd = os.open(source_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    staging = Staging()
     try:
-        verify_source(source_fd, source_path, home)
-        backgrounds_fd = open_theme_directory(home, theme, directory_fds)
-
-        temporary_name = f".theme-manager-{os.getpid()}-{secrets.token_hex(8)}.tmp"
-        write_temporary(source_fd, backgrounds_fd, temporary_name)
-        candidate = link_unused_name(backgrounds_fd, temporary_name, base)
-        os.unlink(temporary_name, dir_fd=backgrounds_fd)
-        temporary_name = ""
-        os.fsync(backgrounds_fd)
-        return os.path.join(home, ".config", "omarchy", "backgrounds", theme, candidate)
+        return publish_from(source_fd, source_path, home, theme, base, staging)
     finally:
-        if temporary_name and backgrounds_fd >= 0:
-            remove_temporary(backgrounds_fd, temporary_name)
-        for fd in reversed(directory_fds):
-            os.close(fd)
+        staging.close()
         os.close(source_fd)
 
 

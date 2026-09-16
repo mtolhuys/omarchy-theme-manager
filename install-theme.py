@@ -86,52 +86,56 @@ def normalize_repository(value):
     return repository if SAFE_REPOSITORY.fullmatch(repository) else ""
 
 
+def palette_value_allowed(key, value):
+    if key not in ALLOWED_COLOR_KEYS or not isinstance(value, str):
+        return False
+    if key in {"mode", "theme_type"}:
+        return value in {"dark", "light"}
+    return bool(SAFE_COLOR_VALUE.fullmatch(value))
+
+
 def flatten_palette(data):
     if not isinstance(data, dict):
         fail("Theme palette is not a TOML table")
-    palette = {}
-    for key, value in data.items():
-        if key not in ALLOWED_COLOR_KEYS or not isinstance(value, str):
-            continue
-        if key in {"mode", "theme_type"}:
-            if value not in {"dark", "light"}:
-                continue
-        elif not SAFE_COLOR_VALUE.fullmatch(value):
-            continue
-        palette[key] = value
-    return palette
+    return {key: value for key, value in data.items() if palette_value_allowed(key, value)}
 
 
-def alacritty_palette(data):
+def legacy_color(table, key, fallback=""):
+    value = table.get(key, fallback)
+    if not isinstance(value, str):
+        return ""
+    match = re.fullmatch(r"(?:0x|#)?([0-9A-Fa-f]{6})", value)
+    return f"#{match.group(1).lower()}" if match else ""
+
+
+def legacy_table(colors, name):
+    table = colors.get(name)
+    return table if isinstance(table, dict) else {}
+
+
+def legacy_color_tables(data):
+    """The normal, bright, primary and selection tables of an Alacritty theme."""
     colors = data.get("colors") if isinstance(data, dict) else None
     if not isinstance(colors, dict):
         fail("Legacy theme has no [colors] table")
-    normal = colors.get("normal")
-    bright = colors.get("bright")
-    primary = colors.get("primary")
-    selection = colors.get("selection")
-    if not isinstance(normal, dict):
+    if not isinstance(colors.get("normal"), dict):
         fail("Legacy theme has no [colors.normal] table")
-    bright = bright if isinstance(bright, dict) else {}
-    primary = primary if isinstance(primary, dict) else {}
-    selection = selection if isinstance(selection, dict) else {}
+    return tuple(legacy_table(colors, name) for name in ("normal", "bright", "primary", "selection"))
 
-    def color(table, key, fallback=""):
-        value = table.get(key, fallback)
-        if not isinstance(value, str):
-            return ""
-        match = re.fullmatch(r"(?:0x|#)?([0-9A-Fa-f]{6})", value)
-        return f"#{match.group(1).lower()}" if match else ""
 
-    normal_values = [color(normal, name) for name in NORMAL_NAMES]
+def alacritty_palette(data):
+    normal, bright, primary, selection = legacy_color_tables(data)
+    normal_values = [legacy_color(normal, name) for name in NORMAL_NAMES]
     if not all(normal_values):
         fail("Legacy theme is missing one or more normal colors")
-    bright_values = [color(bright, name, normal_values[index]) for index, name in enumerate(NORMAL_NAMES)]
-    background = color(primary, "background", normal_values[0])
-    foreground = color(primary, "foreground", normal_values[7])
+    bright_values = [
+        legacy_color(bright, name, normal_values[index]) for index, name in enumerate(NORMAL_NAMES)
+    ]
+    background = legacy_color(primary, "background", normal_values[0])
+    foreground = legacy_color(primary, "foreground", normal_values[7])
     palette = {
         "accent": normal_values[4],
-        "selection": color(selection, "background", foreground),
+        "selection": legacy_color(selection, "background", foreground),
         "background": background,
         "foreground": foreground,
     }
@@ -195,35 +199,47 @@ def copy_image(data, name, destination):
     return len(data)
 
 
-def copy_images(snapshot, destination):
-    total = 0
-    copied = 0
+def copy_preview(snapshot, destination):
+    """Bytes copied for preview.png, 0 when the theme has none."""
     try:
         preview = snapshot.blob("preview.png", MAX_IMAGE_BYTES)
-        total += copy_image(preview, "preview.png", destination / "preview.png")
     except RuntimeError as error:
         if str(error) != "Missing theme file: preview.png":
             raise
+        return 0
+    return copy_image(preview, "preview.png", destination / "preview.png")
 
+
+def background_name(path):
+    name = path.removeprefix("backgrounds/")
+    return name if "/" not in name and SAFE_IMAGE_NAME.fullmatch(name) else ""
+
+
+def copy_backgrounds(snapshot, entries, target, total):
+    """Copy up to MAX_IMAGES safe backgrounds within the total byte budget; returns the count."""
+    copied = 0
+    for path in entries:
+        if copied >= MAX_IMAGES:
+            break
+        name = background_name(path)
+        if not name:
+            continue
+        data = snapshot.blob(path, min(MAX_IMAGE_BYTES, MAX_IMAGE_TOTAL_BYTES - total))
+        total += copy_image(data, name, target / name)
+        copied += 1
+        if total > MAX_IMAGE_TOTAL_BYTES:
+            fail("Theme images exceed the safe total size limit")
+    return copied
+
+
+def copy_images(snapshot, destination):
+    total = copy_preview(snapshot, destination)
     entries = snapshot.backgrounds()
     if not entries:
         return
     target = destination / "backgrounds"
     target.mkdir(mode=0o700)
-    for path in entries:
-        if copied >= MAX_IMAGES:
-            break
-        name = path.removeprefix("backgrounds/")
-        if "/" in name or not SAFE_IMAGE_NAME.fullmatch(name):
-            continue
-        remaining = MAX_IMAGE_TOTAL_BYTES - total
-        data = snapshot.blob(path, min(MAX_IMAGE_BYTES, remaining))
-        size = copy_image(data, name, target / name)
-        total += size
-        copied += 1
-        if total > MAX_IMAGE_TOTAL_BYTES:
-            fail("Theme images exceed the safe total size limit")
-    if copied == 0:
+    if copy_backgrounds(snapshot, entries, target, total) == 0:
         target.rmdir()
 
 
@@ -268,37 +284,52 @@ class Downloader:
         maximum = min(maximum, self.remaining)
         if maximum < 0 or time.monotonic() >= self.deadline:
             fail("Theme download budget exhausted")
-        request = urllib.request.Request(url, headers={
-            "Accept": "application/vnd.github+json" if parsed.netloc == "api.github.com" else "application/octet-stream",
-            "Accept-Encoding": "identity",
-            "User-Agent": "Omarchy-Theme-Manager",
-            "X-GitHub-Api-Version": "2022-11-28",
-        })
         timeout = min(SOCKET_TIMEOUT_SECONDS, self.deadline - time.monotonic())
-        with self.opener.open(request, timeout=max(0.001, timeout)) as response:
-            if response.status != 200:
-                fail("Theme download did not return a complete response")
-            if response.headers.get("Content-Encoding", "identity").lower() != "identity":
-                fail("Compressed theme responses are not allowed")
-            length = response.headers.get("Content-Length")
-            if length is not None and (not length.isdecimal() or int(length) > maximum):
-                fail("Theme download exceeds its byte limit")
-            result = bytearray()
-            while True:
-                if time.monotonic() >= self.deadline:
-                    fail("Theme download timed out")
-                # read1 returns available bytes rather than waiting to fill a
-                # chunk, so trickled responses still reach the deadline check.
-                chunk = response.read1(min(64 * 1024, maximum - len(result) + 1))
-                self.remaining -= len(chunk)
-                if len(result) + len(chunk) > maximum:
-                    fail("Theme download exceeds its byte limit")
-                if not chunk:
-                    break
-                result.extend(chunk)
-            if length is not None and len(result) != int(length):
+        with self.opener.open(github_request(url, parsed.netloc), timeout=max(0.001, timeout)) as response:
+            length = declared_length(response, maximum)
+            result = self.read_bounded(response, maximum)
+            if length is not None and len(result) != length:
                 fail("Theme download is incomplete")
-            return bytes(result)
+            return result
+
+    def read_bounded(self, response, maximum):
+        result = bytearray()
+        while True:
+            if time.monotonic() >= self.deadline:
+                fail("Theme download timed out")
+            # read1 returns available bytes rather than waiting to fill a
+            # chunk, so trickled responses still reach the deadline check.
+            chunk = response.read1(min(64 * 1024, maximum - len(result) + 1))
+            self.remaining -= len(chunk)
+            if len(result) + len(chunk) > maximum:
+                fail("Theme download exceeds its byte limit")
+            if not chunk:
+                return bytes(result)
+            result.extend(chunk)
+
+
+def github_request(url, host):
+    accept = "application/vnd.github+json" if host == "api.github.com" else "application/octet-stream"
+    return urllib.request.Request(url, headers={
+        "Accept": accept,
+        "Accept-Encoding": "identity",
+        "User-Agent": "Omarchy-Theme-Manager",
+        "X-GitHub-Api-Version": "2022-11-28",
+    })
+
+
+def declared_length(response, maximum):
+    """The Content-Length as an int within the budget, or None when absent."""
+    if response.status != 200:
+        fail("Theme download did not return a complete response")
+    if response.headers.get("Content-Encoding", "identity").lower() != "identity":
+        fail("Compressed theme responses are not allowed")
+    length = response.headers.get("Content-Length")
+    if length is None:
+        return None
+    if not length.isdecimal() or int(length) > maximum:
+        fail("Theme download exceeds its byte limit")
+    return int(length)
 
 
 class Snapshot:
@@ -389,6 +420,34 @@ def initialize_safe_repository(path, upstream, commit):
     run(["git", "-C", str(path), "commit", "--quiet", "-m", f"Sanitized snapshot {commit}"])
 
 
+def install_slug(repository):
+    slug = repository.rsplit("/", 1)[-1]
+    slug = re.sub(r"^omarchy-", "", slug)
+    return re.sub(r"-theme$", "", slug)
+
+
+def install(repository, slug):
+    with tempfile.TemporaryDirectory(prefix="omarchy-theme-manager-") as temporary:
+        safe = Path(temporary) / f"omarchy-{slug}-theme"
+        safe.mkdir(mode=0o700)
+        snapshot = Snapshot(repository)
+        write_palette(safe / "colors.toml", load_palette(snapshot))
+        copy_images(snapshot, safe)
+        initialize_safe_repository(safe, repository, snapshot.commit)
+        run(["omarchy", "theme", "install", safe.as_uri()])
+
+
+INSTALL_ERRORS = (
+    OSError,
+    RuntimeError,
+    UnicodeError,
+    ValueError,
+    tomllib.TOMLDecodeError,
+    subprocess.SubprocessError,
+    urllib.error.URLError,
+)
+
+
 def main():
     if len(sys.argv) != 2:
         print("Usage: install-theme.py <github-repository-url>", file=sys.stderr)
@@ -397,29 +456,17 @@ def main():
     if not repository:
         print("Theme repository is not a normalized GitHub URL", file=sys.stderr)
         return 2
-
-    slug = repository.rsplit("/", 1)[-1]
-    slug = re.sub(r"^omarchy-", "", slug)
-    slug = re.sub(r"-theme$", "", slug)
+    slug = install_slug(repository)
     if not SAFE_SLUG.fullmatch(slug):
         print("Theme repository does not produce a safe install name", file=sys.stderr)
         return 1
-
     try:
-        with tempfile.TemporaryDirectory(prefix="omarchy-theme-manager-") as temporary:
-            root = Path(temporary)
-            safe = root / f"omarchy-{slug}-theme"
-            safe.mkdir(mode=0o700)
-            snapshot = Snapshot(repository)
-            write_palette(safe / "colors.toml", load_palette(snapshot))
-            copy_images(snapshot, safe)
-            initialize_safe_repository(safe, repository, snapshot.commit)
-            run(["omarchy", "theme", "install", safe.as_uri()])
-        print(slug)
-        return 0
-    except (OSError, RuntimeError, UnicodeError, ValueError, tomllib.TOMLDecodeError, subprocess.SubprocessError, urllib.error.URLError) as error:
+        install(repository, slug)
+    except INSTALL_ERRORS as error:
         print(f"Theme install failed: {error}", file=sys.stderr)
         return 1
+    print(slug)
+    return 0
 
 
 if __name__ == "__main__":

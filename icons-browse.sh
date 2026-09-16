@@ -81,29 +81,20 @@ search_sort=new
 search_page=0
 search_pagesize=$pagesize_default
 
+set_search_option() {
+  case $1 in
+    --query) search_query=$2 ;;
+    --sort) search_sort=$(normalize_sort "$2") ;;
+    --page) search_page=$2 ;;
+    --pagesize) search_pagesize=$2 ;;
+    *) usage ;;
+  esac
+}
+
 parse_search_args() {
   while (($# > 0)); do
-    case $1 in
-      --query)
-        search_query=${2:-}
-        shift 2
-        ;;
-      --sort)
-        search_sort=$(normalize_sort "${2:-}")
-        shift 2
-        ;;
-      --page)
-        search_page=${2:-}
-        shift 2
-        ;;
-      --pagesize)
-        search_pagesize=${2:-}
-        shift 2
-        ;;
-      *)
-        usage
-        ;;
-    esac
+    set_search_option "$1" "${2:-}"
+    shift 2
   done
 }
 
@@ -473,6 +464,20 @@ render_install_result() {
     }'
 }
 
+# Resolve, check and download the content's archive into the work directory; prints its path.
+fetch_archive() {
+  local content_id=$1
+  local meta=$install_work/download.json
+  fetch_download_meta "$content_id" "$meta"
+  local download_link
+  download_link=$(download_link_from_meta "$meta")
+  require_download_host "$download_link"
+  local archive
+  archive=$install_work/$(archive_name_from_meta "$meta")
+  download_archive "$download_link" "$archive"
+  printf '%s\n' "$archive"
+}
+
 cmd_install() {
   local content_id=${1:-}
   shift || true
@@ -483,26 +488,13 @@ cmd_install() {
   install_work=$(mktemp -d "$cache_dir/.install.XXXXXX")
   trap 'rm -rf "${install_work:-}"' EXIT
 
-  local meta=$install_work/download.json
-  fetch_download_meta "$content_id" "$meta"
-
-  local download_link
-  download_link=$(download_link_from_meta "$meta")
-  require_download_host "$download_link"
-
   local archive
-  archive=$install_work/$(archive_name_from_meta "$meta")
-  download_archive "$download_link" "$archive"
-
-  local extract_dir=$install_work/extract
-  extract_archive "$archive" "$extract_dir"
+  archive=$(fetch_archive "$content_id")
+  extract_archive "$archive" "$install_work/extract"
 
   local -a installed=()
-  mapfile -t installed < <(install_extracted_themes "$extract_dir")
-  if ((${#installed[@]} == 0)); then
-    die "No icon theme (index.theme) found in the archive."
-  fi
-
+  mapfile -t installed < <(install_extracted_themes "$install_work/extract")
+  ((${#installed[@]} > 0)) || die "No icon theme (index.theme) found in the archive."
   render_install_result "$content_id" "${installed[@]}"
 }
 
