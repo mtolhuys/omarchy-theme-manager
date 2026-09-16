@@ -136,6 +136,8 @@ fetch_search_payload() {
   fi
 }
 
+# jq variables are supplied with --arg/--argjson when this literal is evaluated.
+# shellcheck disable=SC2016
 search_result_filter='
   if (.status != "ok")
      or ((.data | type) != "array")

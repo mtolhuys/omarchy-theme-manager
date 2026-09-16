@@ -43,7 +43,10 @@ icon_in_dir() {
   local name ext
   for name in "$@"; do
     for ext in png svg svgz; do
-      [[ -f $dir/$name.$ext ]] && { printf '%s\n' "$dir/$name.$ext"; return 0; }
+      [[ -f $dir/$name.$ext ]] && {
+        printf '%s\n' "$dir/$name.$ext"
+        return 0
+      }
     done
   done
   return 1
