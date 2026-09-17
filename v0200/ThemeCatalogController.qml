@@ -24,6 +24,7 @@ Item {
   property string sourceFallbackRepository: ""
 
   readonly property int temporaryFailureExitCode: 75
+  readonly property int resourceLimitExitCode: 65
 
   readonly property bool canInstallSelected: !!selectedEntry
     && selectedEntry.canInstall === true
@@ -192,6 +193,11 @@ Item {
       } else if (exitCode === root.temporaryFailureExitCode && installedEntry) {
         root.sourceFallbackRepository = String(installedEntry.repositoryUrl || "")
         root.errorMessage = "GitHub rate limit reached — view the source or retry shortly"
+        root.focusRequested()
+      } else if (exitCode === root.resourceLimitExitCode && installedEntry) {
+        root.sourceFallbackRepository = String(installedEntry.repositoryUrl || "")
+        root.errorMessage = root.installStderr
+          || "This theme exceeds Theme Manager's safety limits — view the source for details"
         root.focusRequested()
       } else {
         root.sourceFallbackRepository = ""

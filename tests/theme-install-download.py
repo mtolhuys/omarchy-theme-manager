@@ -78,14 +78,20 @@ class DownloadTests(unittest.TestCase):
             with self.subTest(headers=headers):
                 response = Response(b"x" * (1024 * 1024), headers)
                 downloader = self.downloader(response)
-                with self.assertRaisesRegex(RuntimeError, "byte limit"):
+                with self.assertRaisesRegex(
+                    installer.ThemeResourceLimitError,
+                    r"stopped at 100 bytes",
+                ):
                     downloader.read(URL, 100)
                 self.assertEqual(response.consumed, 101)
                 self.assertTrue(response.closed)
 
     def test_oversized_announced_length_is_rejected_without_body_read(self):
         response = Response(b"x" * 1000, {"Content-Length": "1000"})
-        with self.assertRaisesRegex(RuntimeError, "byte limit"):
+        with self.assertRaisesRegex(
+            installer.ThemeResourceLimitError,
+            r"1000 bytes.*990 bytes over.*10 bytes",
+        ):
             self.downloader(response).read(URL, 10)
         self.assertEqual(response.consumed, 0)
         self.assertTrue(response.closed)
@@ -103,7 +109,7 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(downloader.remaining, 2)
         second = Response(b"x" * 100)
         downloader.opener = Opener(second)
-        with self.assertRaisesRegex(RuntimeError, "byte limit"):
+        with self.assertRaisesRegex(installer.ThemeResourceLimitError, r"stopped at 2 bytes"):
             downloader.read(URL, 20)
         self.assertEqual(second.consumed, 3)
 
@@ -163,6 +169,18 @@ class DownloadTests(unittest.TestCase):
         ), patch("sys.stderr", new_callable=io.StringIO) as stderr:
             self.assertEqual(installer.main(), installer.TEMPORARY_FAILURE)
         self.assertIn("retry later", stderr.getvalue())
+
+    def test_resource_limit_main_exit_preserves_size_details(self):
+        argv = ["install-theme.py", "https://github.com/example/omarchy-safe-theme"]
+        with patch.object(sys, "argv", argv), patch.object(
+            installer,
+            "install",
+            side_effect=installer.ThemeResourceLimitError(
+                "Theme source archive exceeds the 88 MiB safety limit"
+            ),
+        ), patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            self.assertEqual(installer.main(), installer.RESOURCE_LIMIT_FAILURE)
+        self.assertIn("88 MiB safety limit", stderr.getvalue())
 
     def test_trickled_response_checks_deadline_after_each_read(self):
         response = Response(b"a" * 100)
@@ -259,7 +277,10 @@ class DownloadTests(unittest.TestCase):
             archive = Path(directory) / "snapshot.tar.gz"
             self.write_archive(archive, f"theme-{SHA}", [("ignored", b"x" * 4096, "file")])
             with patch.object(installer, "MAX_ARCHIVE_EXPANDED_BYTES", 1024):
-                with self.assertRaisesRegex(RuntimeError, "expanded byte limit"):
+                with self.assertRaisesRegex(
+                    installer.ThemeResourceLimitError,
+                    "Expanded theme archive",
+                ):
                     self.snapshot_for_archive().inventory(archive)
 
     def test_archive_member_count_is_bounded(self):

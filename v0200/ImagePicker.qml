@@ -19,7 +19,7 @@ import "IconBrowseModel.js" as IconBrowseModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.6.7"
+  readonly property string buildIdentity: "0.6.8"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var manifest: null

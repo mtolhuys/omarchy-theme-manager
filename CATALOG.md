@@ -49,6 +49,12 @@ malformed archives, and incomplete downloads stop installation. Omarchy installs
 and applies only the newly constructed data-only repository. A missing or
 malformed palette fails closed.
 
+Resource-limit failures name the bounded resource and limit. When an HTTP length
+or validated archive inventory provides an exact size, the error also includes
+the excess. Chunked downloads stop after the configured limit and report that
+cutoff without downloading the remainder. The catalog then offers **View source**
+instead of presenting an install retry as though it could succeed.
+
 ## Cache
 
 Validated downloads are written atomically under

@@ -32,6 +32,7 @@ MAX_DOWNLOAD_BYTES = MAX_REF_ADVERTISEMENT_BYTES + MAX_ARCHIVE_BYTES
 DOWNLOAD_SECONDS = 60
 SOCKET_TIMEOUT_SECONDS = 10
 TEMPORARY_FAILURE = 75
+RESOURCE_LIMIT_FAILURE = 65
 SAFE_SHA = re.compile(r"^[0-9a-f]{40}$")
 SAFE_COLOR_VALUE = re.compile(r"^[A-Za-z0-9#(),._+/% -]{1,128}$")
 SAFE_REPOSITORY = re.compile(
@@ -90,6 +91,35 @@ def fail(message):
 
 class GitHubRateLimitError(RuntimeError):
     """A public GitHub endpoint asked this unauthenticated client to wait."""
+
+
+class ThemeResourceLimitError(RuntimeError):
+    """A bounded theme resource is too large to install safely."""
+
+
+def human_size(size):
+    if size >= 1024 * 1024:
+        value = size / (1024 * 1024)
+        return f"{value:.1f}".rstrip("0").rstrip(".") + " MiB"
+    if size >= 1024:
+        value = size / 1024
+        return f"{value:.1f}".rstrip("0").rstrip(".") + " KiB"
+    return f"{size} byte" + ("" if size == 1 else "s")
+
+
+def resource_limit_error(label, actual, maximum, exact=True):
+    if exact:
+        excess = actual - maximum
+        message = (
+            f"{label} is {human_size(actual)} — {human_size(excess)} over the "
+            f"{human_size(maximum)} safety limit"
+        )
+    else:
+        message = (
+            f"{label} exceeds the {human_size(maximum)} safety limit "
+            f"(download stopped at {human_size(maximum)})"
+        )
+    raise ThemeResourceLimitError(message)
 
 
 def github_rate_limited(error):
@@ -297,7 +327,7 @@ class Downloader:
         self.deadline = time.monotonic() + DOWNLOAD_SECONDS
         self.opener = urllib.request.build_opener(NoRedirects())
 
-    def open(self, url, maximum):
+    def open(self, url, maximum, label):
         parsed = urllib.parse.urlsplit(url)
         if parsed.scheme != "https" or parsed.netloc not in {"github.com", "codeload.github.com"}:
             fail("Theme download host is not allowed")
@@ -306,7 +336,7 @@ class Downloader:
             fail("Theme download budget exhausted")
         response = self.open_response(url, parsed.netloc)
         try:
-            length = declared_length(response, maximum)
+            length = declared_length(response, maximum, label)
         except RuntimeError:
             response.close()
             raise
@@ -324,7 +354,7 @@ class Downloader:
                 raise GitHubRateLimitError("GitHub download rate limit reached") from None
             raise
 
-    def chunks(self, response, maximum):
+    def chunks(self, response, maximum, label):
         received = 0
         while True:
             if time.monotonic() >= self.deadline:
@@ -333,24 +363,24 @@ class Downloader:
             self.remaining -= len(chunk)
             received += len(chunk)
             if received > maximum:
-                fail("Theme download exceeds its byte limit")
+                resource_limit_error(label, received, maximum, exact=False)
             if not chunk:
                 break
             yield chunk
 
-    def read(self, url, maximum):
-        response, maximum, length = self.open(url, maximum)
+    def read(self, url, maximum, label="Theme download"):
+        response, maximum, length = self.open(url, maximum, label)
         with response:
-            result = b"".join(self.chunks(response, maximum))
+            result = b"".join(self.chunks(response, maximum, label))
             if length is not None and len(result) != length:
                 fail("Theme download is incomplete")
             return result
 
-    def download(self, url, maximum, destination):
-        response, maximum, length = self.open(url, maximum)
+    def download(self, url, maximum, destination, label="Theme download"):
+        response, maximum, length = self.open(url, maximum, label)
         received = 0
         with response, destination.open("xb") as output:
-            for chunk in self.chunks(response, maximum):
+            for chunk in self.chunks(response, maximum, label):
                 output.write(chunk)
                 received += len(chunk)
         if length is not None and received != length:
@@ -371,7 +401,7 @@ def github_request(url, host):
     })
 
 
-def declared_length(response, maximum):
+def declared_length(response, maximum, label="Theme download"):
     """The Content-Length as an int within the budget, or None when absent."""
     if response.status != 200:
         fail("Theme download did not return a complete response")
@@ -380,9 +410,12 @@ def declared_length(response, maximum):
     length = response.headers.get("Content-Length")
     if length is None:
         return None
-    if not length.isdecimal() or int(length) > maximum:
-        fail("Theme download exceeds its byte limit")
-    return int(length)
+    if not length.isdecimal():
+        fail("Theme download returned an invalid byte length")
+    declared = int(length)
+    if declared > maximum:
+        resource_limit_error(label, declared, maximum)
+    return declared
 
 
 class BoundedReader:
@@ -399,14 +432,24 @@ class BoundedReader:
             fail("Theme archive processing timed out")
         remaining = self.maximum - self.received
         if remaining < 0:
-            fail("Theme archive exceeds its expanded byte limit")
+            resource_limit_error(
+                "Expanded theme archive",
+                self.received,
+                self.maximum,
+                exact=False,
+            )
         maximum = remaining + 1
         if size < 0 or size > maximum:
             size = maximum
         data = self.stream.read(size)
         self.received += len(data)
         if self.received > self.maximum:
-            fail("Theme archive exceeds its expanded byte limit")
+            resource_limit_error(
+                "Expanded theme archive",
+                self.received,
+                self.maximum,
+                exact=False,
+            )
         return data
 
 
@@ -491,9 +534,13 @@ def collect_inventory_entry(entries, _stream, member, relative):
 def validate_inventory(entries):
     for path in ("colors.toml", "alacritty.toml"):
         if path in entries and entries[path]["size"] > MAX_PALETTE_BYTES:
-            fail(f"Oversized theme file: {path}")
+            resource_limit_error(f"Theme file {path}", entries[path]["size"], MAX_PALETTE_BYTES)
     if entries.get("preview.png", {}).get("size", 0) > MAX_IMAGE_BYTES:
-        fail("Oversized theme file: preview.png")
+        resource_limit_error(
+            "Theme image preview.png",
+            entries["preview.png"]["size"],
+            MAX_IMAGE_BYTES,
+        )
     backgrounds = sorted(
         (path for path in entries if path.startswith("backgrounds/")),
         key=str.casefold,
@@ -504,10 +551,10 @@ def validate_inventory(entries):
     for path in backgrounds[:MAX_IMAGES]:
         size = entries[path]["size"]
         if size > MAX_IMAGE_BYTES:
-            fail(f"Oversized theme file: {path}")
+            resource_limit_error(f"Theme image {path}", size, MAX_IMAGE_BYTES)
         image_total += size
     if image_total > MAX_IMAGE_TOTAL_BYTES:
-        fail("Theme images exceed the safe total size limit")
+        resource_limit_error("Selected theme images", image_total, MAX_IMAGE_TOTAL_BYTES)
 
 
 def copy_declared_bytes(source, output, relative, remaining):
@@ -545,11 +592,22 @@ class Snapshot:
         self.repository = repository.removeprefix("https://github.com/")
         self.name = self.repository.rsplit("/", 1)[-1]
         refs_url = f"https://github.com/{self.repository}.git/info/refs?service=git-upload-pack"
-        self.commit = advertised_head(self.downloader.read(refs_url, MAX_REF_ADVERTISEMENT_BYTES))
+        self.commit = advertised_head(
+            self.downloader.read(
+                refs_url,
+                MAX_REF_ADVERTISEMENT_BYTES,
+                "Git reference metadata",
+            )
+        )
         storage.mkdir(mode=0o700)
         archive = storage / "snapshot.tar.gz"
         archive_url = f"https://codeload.github.com/{self.repository}/tar.gz/{self.commit}"
-        self.downloader.download(archive_url, MAX_ARCHIVE_BYTES, archive)
+        self.downloader.download(
+            archive_url,
+            MAX_ARCHIVE_BYTES,
+            archive,
+            "Theme source archive",
+        )
         self.entries = self.inventory(archive)
         self.extract(archive, storage)
 
@@ -565,7 +623,11 @@ class Snapshot:
                             fail("Theme archive contains too many entries")
                         declared += member.size
                         if declared > MAX_ARCHIVE_EXPANDED_BYTES:
-                            fail("Theme archive exceeds its expanded byte limit")
+                            resource_limit_error(
+                                "Expanded theme archive entries",
+                                declared,
+                                MAX_ARCHIVE_EXPANDED_BYTES,
+                            )
                         relative = archive_member_path(member, expected_root)
                         if not relative:
                             continue
@@ -604,7 +666,7 @@ class Snapshot:
             fail(f"Missing theme file: {path}")
         size = entry["size"]
         if size > maximum:
-            fail(f"Oversized theme file: {path}")
+            resource_limit_error(f"Theme file {path}", size, maximum)
         with entry["file"].open("rb") as source:
             data = source.read(maximum + 1)
         if len(data) != size:
@@ -670,6 +732,9 @@ def main():
     except GitHubRateLimitError as error:
         print(f"Theme install paused: {error}; retry later", file=sys.stderr)
         return TEMPORARY_FAILURE
+    except ThemeResourceLimitError as error:
+        print(error, file=sys.stderr)
+        return RESOURCE_LIMIT_FAILURE
     except urllib.error.HTTPError as error:
         try:
             print(f"Theme install failed: {error}", file=sys.stderr)

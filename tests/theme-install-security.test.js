@@ -219,7 +219,7 @@ test("rejects oversized ref metadata during the initial read", async () => {
   try {
     const result = harness.run()
     assert.notEqual(result.status, 0)
-    assert.match(result.stderr, /byte limit/)
+    assert.match(result.stderr, /Git reference metadata exceeds the 1 MiB safety limit/)
     assert.equal((await harness.requests()).length, 1)
     await assert.rejects(harness.log(), { code: "ENOENT" })
   } finally {
@@ -232,7 +232,10 @@ test("refuses an oversized selected file before invoking Omarchy", async () => {
   try {
     const result = harness.run()
     assert.notEqual(result.status, 0)
-    assert.match(result.stderr, /Oversized theme file: colors.toml/)
+    assert.match(
+      result.stderr,
+      /Theme file colors\.toml is 64 KiB — 1 byte over the 64 KiB safety limit/
+    )
     assert.equal((await harness.requests()).length, 2)
     await assert.rejects(harness.log(), { code: "ENOENT" })
   } finally {

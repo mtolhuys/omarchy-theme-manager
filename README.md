@@ -148,6 +148,11 @@ download, the picker offers a one-shot **View source** fallback and immediately
 restores **Install** afterward so the user can retry later. No GitHub credentials
 are requested.
 
+Oversized themes are not retried. The picker reports which safety limit was
+crossed and switches the action to **View source**. If GitHub declares the total,
+the message includes the observed size and exact excess; otherwise downloading
+stops at the configured limit and the message says so explicitly.
+
 Wallpapers: only Aether and Omarchy picker helpers; capped streaming output;
 validated ids; previews from Aether's thumbnail cache; downloads from Aether's
 wallpaper directory.

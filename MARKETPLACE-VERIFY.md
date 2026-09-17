@@ -31,13 +31,15 @@ Maintainer notes (not required by form):
 - One archive pinned to that SHA is capped at 88 MiB compressed, 160 MiB per
   decompression pass, 4,096 entries, and 4,096 bytes per path; redirects and HTTP
   content encoding are refused
+- Oversized resources produce a typed refusal with the resource and safety limit,
+  plus the exact excess when it is known; the picker then offers **View source**
 - The installed repository contains only a strictly parsed palette, bounded
   image formats, and provenance with the exact source commit
 - Scripts, symlinks, submodules, application configs, nested backgrounds, and
   unknown files are excluded before `omarchy theme install` is called
 - `omakit verify` reports no findings; the expected `installer` capability
   requires maintainer review
-- Version 0.6.7 includes the catalog/search crash fix, replacing the unbounded
+- Version 0.6.8 includes the catalog/search crash fix, replacing the unbounded
   GPU-backed QML Repeater with a reusable 17-delegate pool (15 visible), building
   one fuzzy-search index per query, and pre-indexing catalog search metadata
 - Wallpaper navigation now debounces stale palette work and caches 24 recent

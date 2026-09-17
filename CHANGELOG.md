@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.6.8 - 2026-09-17
+
+- Explain resource-limit refusals with the resource, observed size, configured
+  safety limit, and exact excess whenever GitHub declares the total. For chunked
+  archives, report that the download stopped at the limit without pretending to
+  know the unseen remainder.
+- Treat an oversized theme as a typed, non-retryable refusal. The catalog action
+  changes to **View source**, while the existing 88 MiB archive, 20 MiB per-image,
+  and 80 MiB combined-image boundaries remain intact.
+
 ## 0.6.7 - 2026-09-16
 
 - Remove theme installation's dependency on GitHub's unauthenticated REST API
