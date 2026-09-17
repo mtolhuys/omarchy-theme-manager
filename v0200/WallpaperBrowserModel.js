@@ -222,7 +222,7 @@ const optionalSearchArguments = (normalizedFilters, query) => {
 
 const searchArguments = (query, page = 1, pages = 2, filters = {}) => {
   const normalizedFilters = effectiveSearchFilters(query, filters)
-  return ["aether", "--wallhaven-thumbs", "--json", "--pages", boundedPages(pages)]
+  return ["/usr/bin/aether", "--wallhaven-thumbs", "--json", "--pages", boundedPages(pages)]
     .concat(filterArguments(normalizedFilters))
     .concat(["--page", boundedPage(page)])
     .concat(optionalSearchArguments(normalizedFilters, query))
@@ -230,7 +230,7 @@ const searchArguments = (query, page = 1, pages = 2, filters = {}) => {
 
 const downloadArguments = (id) =>
   wallpaperIdPattern.test(stringValue(id))
-    ? ["aether", "--wallhaven-download", stringValue(id), "--json"]
+    ? ["/usr/bin/aether", "--wallhaven-download", stringValue(id), "--json"]
     : []
 
 const safeThumbnailPath = (path, cacheHome) => {

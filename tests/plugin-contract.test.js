@@ -20,8 +20,12 @@ test("releases image-selector clients independently of QML loader teardown", asy
   const manifest = JSON.parse(await read("manifest.json"))
   const picker = await read(manifest.entryPoints.overlay)
 
-  assert.match(picker, /Quickshell\.execDetached\(\["touch", "--", String\(path\)\]\)/)
-  assert.doesNotMatch(picker, /doneFilesToRelease|releaseNextDoneFile|id: releaseProc/)
+  // The done mark is written from this process, synchronously, so a rescan
+  // that destroys the object right after close() cannot lose it; no child
+  // process is involved (Run ends its group on destruction).
+  assert.match(picker, /function finishDoneFile\(path\) \{[\s\S]*?writeSmallFile\(path, ""\)/)
+  assert.match(picker, /id: smallFileWriter\n\s*blockWrites: true/)
+  assert.doesNotMatch(picker, /execDetached|doneFilesToRelease|releaseNextDoneFile|id: releaseProc/)
 })
 
 test("versions the complete QML and JavaScript runtime graph", async () => {
@@ -81,8 +85,12 @@ test("releases image-selector clients independently of QML loader teardown", asy
   const manifest = JSON.parse(await read("manifest.json"))
   const picker = await read(manifest.entryPoints.overlay)
 
-  assert.match(picker, /Quickshell\.execDetached\(\["touch", "--", String\(path\)\]\)/)
-  assert.doesNotMatch(picker, /doneFilesToRelease|releaseNextDoneFile|id: releaseProc/)
+  // The done mark is written from this process, synchronously, so a rescan
+  // that destroys the object right after close() cannot lose it; no child
+  // process is involved (Run ends its group on destruction).
+  assert.match(picker, /function finishDoneFile\(path\) \{[\s\S]*?writeSmallFile\(path, ""\)/)
+  assert.match(picker, /id: smallFileWriter\n\s*blockWrites: true/)
+  assert.doesNotMatch(picker, /execDetached|doneFilesToRelease|releaseNextDoneFile|id: releaseProc/)
 })
 
 test("resolves bundled helpers without private host manifest fields", async () => {
@@ -99,6 +107,11 @@ test("resolves bundled helpers without private host manifest fields", async () =
     "icons-inventory.sh",
     "install-theme.py",
     "install-wallpaper.sh",
+    "install-hook.sh",
+    "verify-wallpaper.sh",
+    "apply-icons.sh",
+    "reset-icons.sh",
+    "probe-theme-lock.sh",
     "remove-wallpaper.sh",
     "reset-wallpaper.sh",
     "theme-inventory.sh",
@@ -145,8 +158,8 @@ test("routes theme and wallpaper features by request context", async () => {
   assert.match(picker, /catalogAction: themeCatalog\.selectedStatus/)
   assert.match(picker, /catalogCanOpenSource: themeCatalog\.canOpenSelectedSource/)
   assert.match(picker, /pluginScriptPath\("install-theme\.py"\)/)
-  assert.match(picker, /Util\.execArgv\(\["xdg-open", repositoryUrl\]\)/)
-  assert.doesNotMatch(catalogRuntime, /execDetached\(\["xdg-open"/)
+  assert.match(picker, /sourceOpener\.command = \["\/usr\/bin\/xdg-open", repositoryUrl\]/)
+  assert.doesNotMatch(catalogRuntime, /execDetached\(\["xdg-open"|execArgv/)
 
   assert.match(picker, /ThemeMemoryModel/)
   assert.match(picker, /root\.openIcons\(\)/)
@@ -189,9 +202,14 @@ test("delegates SFW Wallhaven traffic exclusively to bounded Aether processes", 
   assert.match(model, /"--purity",\s*"100"/)
   assert.match(controller, /maxSearchOutputBytes:\s*4 \* 1024 \* 1024/)
   assert.match(controller, /maxDownloadOutputBytes:\s*8 \* 1024/)
-  assert.match(controller, /maxErrorOutputBytes:\s*64 \* 1024/)
-  assert.equal((controller.match(/onDataChanged:/g) || []).length, 4)
-  assert.equal((controller.match(/\.signal\(9\)/g) || []).length, 4)
+  // Both Aether runs go through omakit's Run block: the byte caps are the
+  // block's, counted while reading, and every run has a deadline.
+  assert.equal((controller.match(/^  Run \{/gm) || []).length, 2)
+  assert.doesNotMatch(controller, /Process \{|StdioCollector|onDataChanged|\.signal\(9\)/)
+  assert.match(controller, /maxBytes: root\.maxSearchOutputBytes/)
+  assert.match(controller, /maxBytes: root\.maxDownloadOutputBytes/)
+  assert.equal((controller.match(/deadlineMs: \d+/g) || []).length, 2)
+  assert.match(model, /"\/usr\/bin\/aether"/)
   assert.match(filterBar, /Filters/)
   assert.match(filterSheet, /selected color need not dominate/)
   assert.match(picker, /filterSheet\.openWith/)
@@ -212,7 +230,8 @@ test("ships theme-set memory hook, Icons showcase chip, and Actions dropdown", a
   const manifest = JSON.parse(await read("manifest.json"))
   const picker = await read(manifest.entryPoints.overlay)
   assert.match(picker, /ensureThemeSetMemoryHook/)
-  assert.match(picker, /omarchy-theme-set\.lock/)
+  assert.match(picker, /probe-theme-lock\.sh/)
+  assert.match(await read("probe-theme-lock.sh"), /omarchy-theme-set\.lock/)
   assert.match(picker, /footerIconLabel/)
   assert.match(picker, /Wallpaper saved for/)
   assert.match(picker, /id: iconsBrowseButton/)
@@ -306,7 +325,10 @@ test("installs external wallpapers into theme backgrounds for the local picker",
   assert.match(picker, /list\.sh is the source of/)
   assert.doesNotMatch(picker, /injectWallpaperIntoCarousel\(remembered\)/)
   assert.match(picker, /acceptInstalledWallpaper/)
-  assert.match(picker, /wallpaperInstallStdout/)
+  assert.match(
+    picker,
+    /id: wallpaperInstallProc[\s\S]*?onFinished: function\(result\)[\s\S]*?result\.stdout/
+  )
   assert.match(picker, /pendingInstallSourcePath/)
   assert.match(picker, /syncInstalledWallpaperIntoLocalSnapshot/)
   assert.match(picker, /installedWallpaperPath\(/)
@@ -320,10 +342,11 @@ test("installs external wallpapers into theme backgrounds for the local picker",
   assert.match(picker, /reset-wallpaper\.sh/)
   assert.match(picker, /dropWallpaperFromCarousel/)
   assert.match(picker, /reloadLocalWallpapersFromDisk/)
-  assert.match(picker, /wallpaperRemoveStdout/)
-  assert.match(picker, /wallpaperResetStdout/)
-  assert.match(picker, /acceptRemovedInstalledWallpaper\(root\.wallpaperRemoveStdout\)/)
-  assert.match(picker, /acceptResetWallpaper\(root\.wallpaperResetStdout\)/)
+  assert.match(
+    picker,
+    /acceptRemovedInstalledWallpaper\(String\(result\.stdout \|\| ""\)\.trim\(\)\)/
+  )
+  assert.match(picker, /acceptResetWallpaper\(String\(result\.stdout \|\| ""\)\.trim\(\)\)/)
   assert.match(picker, /Optimistic UI drop BEFORE Process starts/)
   assert.doesNotMatch(picker, /root\.wallpaperRemoveProc\.succeeded/)
   assert.doesNotMatch(picker, /root\.wallpaperResetProc\.succeeded/)

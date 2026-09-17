@@ -7,6 +7,7 @@ import QtQuick.Effects
 import QtQuick.Shapes
 import qs.Commons
 import qs.Ui
+import "../omakit"
 import "ImagePickerModel.js" as ImagePickerModel
 import "IconThemeModel.js" as IconThemeModel
 import "ThemeManagerModel.js" as ThemeManagerModel
@@ -22,6 +23,21 @@ Item {
   readonly property string buildIdentity: "0.6.8"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
+  // Every program starts through Run (omakit/Run.qml) with a closed
+  // environment. Omarchy's own commands are named by absolute path under
+  // its bin directory, and the variables each kind of program needs are
+  // named here, once: the plugin's helpers get the XDG paths and
+  // OMARCHY_PATH; Omarchy's commands also get the session, since they talk
+  // to the compositor, the shell and the session bus.
+  readonly property string omarchyBin: (omarchyPath || (Quickshell.env("HOME") + "/.local/share/omarchy")) + "/bin"
+  readonly property var helperEnvironment: namedEnvironment([
+    "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "OMARCHY_PATH",
+    "OMARCHY_THEME_CATALOG_MAX_AGE", "OMARCHY_ICONS_OCS_API", "OMARCHY_ICONS_OCS_CATEGORY"
+  ], {})
+  readonly property var omarchyEnvironment: namedEnvironment([
+    "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "OMARCHY_PATH",
+    "WAYLAND_DISPLAY", "HYPRLAND_INSTANCE_SIGNATURE", "DBUS_SESSION_BUS_ADDRESS", "XDG_CURRENT_DESKTOP"
+  ], { PATH: "/usr/bin:" + omarchyBin })
   property var manifest: null
   property string stateHome: Quickshell.env("HOME") + "/.local/state"
   property string imageDirs: Quickshell.env("OMARCHY_IMAGE_SELECTOR_DIRS") || Quickshell.env("OMARCHY_IMAGE_SELECTOR_DIR") || Quickshell.env("OMARCHY_STOCK_BACKGROUNDS_DIR") || (stateHome + "/omarchy/current/theme/backgrounds")
@@ -90,13 +106,6 @@ Item {
   property var themeMemoryState: ({ version: 1, themes: {} })
   property string lastRestoredThemeName: ""
   property bool restoringThemeMemory: false
-  // Captured outside Process StdioCollector — root.wallpaper*Proc is undefined
-  // inside those collectors and threw before accept could run (Remove TypeError).
-  // Install uses the same onExited-driven accept pattern so a missed/empty
-  // onStreamFinished cannot leave a copied wallpaper unset until reopen.
-  property string wallpaperRemoveStdout: ""
-  property string wallpaperResetStdout: ""
-  property string wallpaperInstallStdout: ""
   property string statusToast: ""
   property var iconsInventoryThemes: []
   property string footerIconFolder: ""
@@ -322,6 +331,30 @@ Item {
     return omarchyPath + "/shell/plugins/image-picker/" + name
   }
 
+  // The named variables of the shell's environment that are set, plus the
+  // fixed ones, as the object Run adds to its base environment.
+  function namedEnvironment(names, fixed) {
+    const environment = Object.assign({}, fixed)
+    for (let index = 0; index < names.length; index++) {
+      const value = Quickshell.env(names[index])
+      if (value) environment[names[index]] = value
+    }
+    return environment
+  }
+
+  // A small file written from this process, synchronously, so it is there
+  // before anything else happens and survives a rescan that destroys this
+  // object: the selection and done files a waiting omarchy-menu-images
+  // reads. A child process could be ended by that teardown (Run ends its
+  // group on destruction), which is why these two writes are not processes.
+  function writeSmallFile(path, text) {
+    const target = String(path || "")
+    if (!target.startsWith("/")) return false
+    smallFileWriter.path = target
+    smallFileWriter.setText(String(text || ""))
+    return true
+  }
+
   function localPath(url) {
     var value = String(url || "")
     if (value.indexOf("file://") === 0) value = value.substring(7)
@@ -427,9 +460,8 @@ Item {
     pendingInstallDoneFile = String(donePath || "")
     pendingInstallSourcePath = target
     pendingInstallSerial = serial || 0
-    wallpaperInstallStdout = ""
     wallpaperInstallProc.command = command
-    wallpaperInstallProc.running = true
+    wallpaperInstallProc.start()
     return true
   }
 
@@ -593,18 +625,14 @@ Item {
       // file is written. Direct set covers the intermittent case where accept ran
       // but the waiter already moved on / selection handoff raced.
       if (!memoryBgProc.running) {
-        memoryBgProc.command = ["omarchy-theme-bg-set", installed]
-        memoryBgProc.running = true
+        memoryBgProc.command = [omarchyBin + "/omarchy-theme-bg-set", installed]
+        memoryBgProc.start()
       }
       applySerial = serial || requestSerial
-      applyProc.command = [
-        "bash",
-        "-c",
-        "printf '%s\\n' " + Util.shellQuote(installed)
-          + " > " + Util.shellQuote(selectionPath)
-          + "; : > " + Util.shellQuote(donePath)
-      ]
-      applyProc.running = true
+      writeSmallFile(selectionPath, installed + "\n")
+      writeSmallFile(donePath, "")
+      if (applySerial === requestSerial)
+        opened = false
       return
     }
 
@@ -622,8 +650,8 @@ Item {
 
     if (purpose === "migrate" || purpose === "migrate-restore") {
       restoringThemeMemory = true
-      memoryBgProc.command = ["omarchy-theme-bg-set", installed]
-      memoryBgProc.running = true
+      memoryBgProc.command = [omarchyBin + "/omarchy-theme-bg-set", installed]
+      memoryBgProc.start()
       if (purpose === "migrate-restore" && themeName) {
         themeMemoryVerifyTimer.themeName = themeName
         themeMemoryVerifyTimer.expectedWallpaper = installed
@@ -664,18 +692,10 @@ Item {
     const source = pluginScriptPath("hooks/theme-set.d/50-theme-manager-memory")
     if (!source) return
     const dest = Quickshell.env("HOME") + "/.config/omarchy/hooks/theme-set.d/50-theme-manager-memory"
-    hookInstallProc.command = [
-      "bash",
-      "-c",
-      'src="$1"; dest="$2"; '
-      + 'mkdir -p "$(dirname "$dest")"; '
-      + 'if [[ ! -f $dest ]] || ! cmp -s "$src" "$dest"; then '
-      + 'cp "$src" "$dest" && chmod +x "$dest"; fi',
-      "theme-manager-ensure-hook",
-      source,
-      dest
-    ]
-    hookInstallProc.running = true
+    const script = pluginScriptPath("install-hook.sh")
+    if (!script) return
+    hookInstallProc.command = [script, source, dest]
+    hookInstallProc.start()
   }
 
   function ensureFooterIconsReady() {
@@ -694,12 +714,12 @@ Item {
 
     if (iconThemeProbeProc.running) return
     iconThemeProbeProc.command = [
-      "gsettings",
+      "/usr/bin/gsettings",
       "get",
       "org.gnome.desktop.interface",
       "icon-theme"
     ]
-    iconThemeProbeProc.running = true
+    iconThemeProbeProc.start()
   }
 
   function acceptIconThemeProbe(text) {
@@ -720,7 +740,7 @@ Item {
     const script = pluginScriptPath("icons-inventory.sh")
     if (!script) return
     footerIconsInventoryProc.command = [script]
-    footerIconsInventoryProc.running = true
+    footerIconsInventoryProc.start()
   }
 
   function updateFooterIconPreviews() {
@@ -774,8 +794,8 @@ Item {
         }
       }
       restoringThemeMemory = true
-      memoryBgProc.command = ["omarchy-theme-bg-set", wallpaper]
-      memoryBgProc.running = true
+      memoryBgProc.command = [omarchyBin + "/omarchy-theme-bg-set", wallpaper]
+      memoryBgProc.start()
     }
 
     if (icons && icons !== currentIconTheme)
@@ -790,22 +810,12 @@ Item {
     const name = String(themeName || "").trim()
     const expected = ThemeMemoryModel.safePath(expectedWallpaper)
     if (!name || !expected) return
-    themeMemoryVerifyProc.command = [
-      "bash",
-      "-c",
-      'expected="$1"; '
-      + 'if [[ -z $expected ]]; then echo OK; exit 0; fi; '
-      + 'if [[ ! -f $expected ]]; then echo MISSING; exit 0; fi; '
-      + 'size=$(stat -c %s "$expected" 2>/dev/null || echo 0); '
-      + 'if [[ $size -lt 4096 ]]; then echo MISSING; exit 0; fi; '
-      + 'current=$(readlink -f "$HOME/.local/state/omarchy/current/background" 2>/dev/null || true); '
-      + 'if [[ $current != "$expected" ]]; then echo MISMATCH; else echo OK; fi',
-      "theme-memory-verify",
-      expected
-    ]
+    const script = pluginScriptPath("verify-wallpaper.sh")
+    if (!script) return
+    themeMemoryVerifyProc.command = [script, expected]
     themeMemoryVerifyProc.themeName = name
     themeMemoryVerifyProc.expectedWallpaper = expected
-    themeMemoryVerifyProc.running = true
+    themeMemoryVerifyProc.start()
   }
 
   function applyIconTheme(iconName, persist) {
@@ -815,15 +825,10 @@ Item {
     if (persist !== false)
       rememberIconSelection(icons, previous)
 
-    iconApplyProc.command = [
-      "bash",
-      "-c",
-      "printf '%s\n' " + Util.shellQuote(icons)
-        + " > " + Util.shellQuote(currentIconsThemePath)
-        + " && gsettings set org.gnome.desktop.interface icon-theme "
-        + Util.shellQuote(icons)
-    ]
-    iconApplyProc.running = true
+    const script = pluginScriptPath("apply-icons.sh")
+    if (!script) return
+    iconApplyProc.command = [script, icons, currentIconsThemePath]
+    iconApplyProc.start()
     currentIconTheme = icons
     showStatus("Icons · " + IconThemeModel.labelForIconTheme(icons))
   }
@@ -838,9 +843,8 @@ Item {
     saveThemeMemoryState()
     restoringThemeMemory = true
     wallpaperResetProc.themeName = themeName
-    wallpaperResetStdout = ""
     wallpaperResetProc.command = [script, themeName]
-    wallpaperResetProc.running = true
+    wallpaperResetProc.start()
   }
 
   function acceptResetWallpaper(stockPath) {
@@ -878,7 +882,6 @@ Item {
       || (!!rememberedBase && rememberedBase === removedBase))
     wallpaperRemoveProc.removedPath = target
     wallpaperRemoveProc.themeName = themeName
-    wallpaperRemoveStdout = ""
 
     // Optimistic UI drop BEFORE Process starts. Script success still runs
     // acceptRemovedInstalledWallpaper (prune memory/favorites + list.sh rescan).
@@ -887,7 +890,7 @@ Item {
     dropWallpaperFromCarousel(target, "", previousIndex)
 
     wallpaperRemoveProc.command = [script, themeName, target]
-    wallpaperRemoveProc.running = true
+    wallpaperRemoveProc.start()
   }
 
   function acceptRemovedInstalledWallpaper(nextBackground) {
@@ -897,7 +900,6 @@ Item {
     wallpaperRemoveProc.removedPath = ""
     wallpaperRemoveProc.themeName = ""
     wallpaperRemoveProc.clearMemory = false
-    wallpaperRemoveStdout = ""
 
     if (themeName) {
       const remembered = ThemeMemoryModel.rememberedWallpaper(themeMemoryState, themeName)
@@ -1013,24 +1015,10 @@ Item {
     const fallback = ThemeMemoryModel.rememberedIconsDefault(themeMemoryState, themeName)
     themeMemoryState = ThemeMemoryModel.clearIcons(themeMemoryState, themeName)
     saveThemeMemoryState()
-    iconResetProc.command = [
-      "bash",
-      "-c",
-      'theme="$1"; fallback="$2"; '
-      + 'dir=$(omarchy-theme-dir "$theme" 2>/dev/null || true); '
-      + 'value=""; '
-      + 'if [[ -n $fallback ]]; then value=$fallback; '
-      + 'elif [[ -f $dir/icons.theme ]]; then value=$(<"$dir/icons.theme"); '
-      + 'else value=Yaru-blue; fi; '
-      + 'value=$(printf "%s" "$value" | tr -d "\r\n"); '
-      + 'printf "%s\n" "$value" > "$HOME/.local/state/omarchy/current/theme/icons.theme"; '
-      + 'gsettings set org.gnome.desktop.interface icon-theme "$value"; '
-      + 'printf "%s\n" "$value"',
-      "omarchy-theme-icons-default",
-      themeName,
-      fallback
-    ]
-    iconResetProc.running = true
+    const script = pluginScriptPath("reset-icons.sh")
+    if (!script) return
+    iconResetProc.command = fallback ? [script, themeName, fallback] : [script, themeName]
+    iconResetProc.start()
   }
 
   function openIcons() {
@@ -1058,7 +1046,7 @@ Item {
     imagesLoaded = true
     layoutSettled = true
     iconsInventoryProc.command = [script]
-    iconsInventoryProc.running = true
+    iconsInventoryProc.start()
     Qt.callLater(focusPicker)
   }
 
@@ -1194,7 +1182,7 @@ Item {
     const script = pluginScriptPath("icons-inventory.sh")
     if (script) {
       iconsInventoryProc.command = [script]
-      iconsInventoryProc.running = true
+      iconsInventoryProc.start()
     }
     showStatus("Installed icons · " + IconThemeModel.labelForIconTheme(name))
   }
@@ -1315,14 +1303,16 @@ Item {
   function openWallpapersSwitcher() {
     if (wallpaperPickerActive || iconsMode || iconsBrowseMode) return
     if (!(themeManager.themePickerActive || catalogMode)) return
-    Quickshell.execDetached(["omarchy-theme-bg-switcher"])
+    switcherRun.command = [omarchyBin + "/omarchy-theme-bg-switcher"]
+    switcherRun.start()
     cancel()
   }
 
   function openThemesSwitcher() {
     if (themeManager.themePickerActive && !wallpaperPickerActive && !iconsMode && !iconsBrowseMode) return
     if (!(localWallpaperMode || wallhavenMode || iconsMode || iconsBrowseMode)) return
-    Quickshell.execDetached(["omarchy-theme-switcher"])
+    switcherRun.command = [omarchyBin + "/omarchy-theme-switcher"]
+    switcherRun.start()
     cancel()
   }
 
@@ -1675,10 +1665,9 @@ Item {
 
   function finishDoneFile(path) {
     if (!path) return
-    // A plugin rescan destroys this QML object immediately after close(). A
-    // child Process owned by the object is killed with it, so leave the tiny
-    // completion write to a detached process that survives that teardown.
-    Quickshell.execDetached(["touch", "--", String(path)])
+    // A plugin rescan destroys this QML object immediately after close(), so
+    // the completion mark is written from this process, synchronously.
+    writeSmallFile(path, "")
   }
 
   function finishSelection(path) {
@@ -1715,8 +1704,10 @@ Item {
     selectionFile = ""
     doneFile = ""
 
-    applyProc.command = ["bash", "-c", "printf '%s\\n' " + Util.shellQuote(path) + " > " + Util.shellQuote(activeSelectionFile) + "; : > " + Util.shellQuote(activeDoneFile)]
-    applyProc.running = true
+    writeSmallFile(activeSelectionFile, path + "\n")
+    writeSmallFile(activeDoneFile, "")
+    if (applySerial === requestSerial)
+      opened = false
   }
 
   function applySelected() {
@@ -1913,7 +1904,7 @@ Item {
     loadImagesProc.queuedSerial = 0
     loadImagesProc.queuedDirs = ""
     loadImagesProc.command = [root.scriptPath("list.sh"), dirs]
-    loadImagesProc.running = true
+    loadImagesProc.start()
   }
 
   function indexForSelectedImage(images) {
@@ -1924,27 +1915,28 @@ Item {
     return indexForSelectedImage(imageArray)
   }
 
-  Process {
+  // Omarchy's list.sh walks the wallpaper directories and makes missing
+  // thumbnails with ImageMagick: a first run over a few hundred images can
+  // take a while, so 120 s; one line per image, so 1 MiB holds thousands.
+  Run {
     id: loadImagesProc
 
     property int activeSerial: 0
     property int queuedSerial: 0
     property string queuedDirs: ""
+    environment: root.helperEnvironment
+    deadlineMs: 120000
+    maxBytes: 1048576
+    keepBytes: 1048576
 
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        if (loadImagesProc.activeSerial === root.requestSerial) {
-          const reveal = !root.refreshInPlace
-          root.refreshInPlace = false
-          root.loadRows(String(text || ""), reveal)
-          if (!reveal)
-            Qt.callLater(root.focusPicker)
-        }
+    onFinished: function(result) {
+      if (activeSerial === root.requestSerial) {
+        const reveal = !root.refreshInPlace
+        root.refreshInPlace = false
+        root.loadRows(result.state === "ok" ? String(result.stdout || "") : "", reveal)
+        if (!reveal)
+          Qt.callLater(root.focusPicker)
       }
-    }
-
-    onExited: {
       const serial = queuedSerial
       const dirs = queuedDirs
       activeSerial = 0
@@ -2132,12 +2124,8 @@ Item {
       waitedMs += interval
       // Lock file persists after unlock; probe flock ownership instead of existence.
       if (!themeSetLockProbe.running) {
-        themeSetLockProbe.command = [
-          "bash",
-          "-c",
-          'lock="${XDG_RUNTIME_DIR:-/tmp}/omarchy-theme-set.lock"; flock -n "$lock" true'
-        ]
-        themeSetLockProbe.running = true
+        themeSetLockProbe.command = [root.pluginScriptPath("probe-theme-lock.sh")]
+        themeSetLockProbe.start()
       }
       if (waitedMs >= 8000) {
         stop()
@@ -2162,15 +2150,49 @@ Item {
     onTriggered: root.statusToast = ""
   }
 
-  Process {
-    id: memoryBgProc
-    onExited: root.restoringThemeMemory = false
+  // The small file writer behind writeSmallFile: the selection and done
+  // files, written synchronously from this process.
+  FileView {
+    id: smallFileWriter
+    blockWrites: true
+    printErrors: false
   }
 
-  Process {
+  // omarchy-theme-bg-set links the background and tells the shell over IPC:
+  // a second at most, 15 s is generous; a line or two of output.
+  Run {
+    id: memoryBgProc
+    environment: root.omarchyEnvironment
+    deadlineMs: 15000
+    maxBytes: 65536
+    onFinished: root.restoringThemeMemory = false
+  }
+
+  // xdg-open hands a repository URL to the browser and returns; 30 s covers
+  // a handler that waits for the browser to start.
+  Run {
+    id: sourceOpener
+    environment: root.omarchyEnvironment
+    deadlineMs: 30000
+    maxBytes: 4096
+  }
+
+  // The switchers open Omarchy's own menus and live as long as the picker
+  // they open; a menu the user left open for half an hour is ended.
+  Run {
+    id: switcherRun
+    environment: root.omarchyEnvironment
+    deadlineMs: 1800000
+    maxBytes: 65536
+  }
+
+  // flock -n answers at once: 5 s covers a stalled runtime directory.
+  Run {
     id: themeSetLockProbe
-    onExited: function(exitCode) {
-      if (exitCode === 0)
+    deadlineMs: 5000
+    maxBytes: 4096
+    onFinished: function(result) {
+      if (result.state === "ok")
         themeMemoryRestoreTimer.lockFree = true
       if (!themeMemoryRestoreTimer.running)
         return
@@ -2181,154 +2203,161 @@ Item {
     }
   }
 
-  Process {
+  // verify-wallpaper.sh stats one file and reads one symlink: 5 s; one word.
+  Run {
     id: themeMemoryVerifyProc
     property string themeName: ""
     property string expectedWallpaper: ""
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        const status = String(text || "").trim()
-        if (status === "MISSING")
-          root.pruneRememberedWallpaper(themeMemoryVerifyProc.themeName)
-        else if (status === "MISMATCH")
-          root.restoreThemeMemory(themeMemoryVerifyProc.themeName)
-      }
+    deadlineMs: 5000
+    maxBytes: 4096
+    onFinished: function(result) {
+      const status = result.state === "ok" ? String(result.stdout || "").trim() : ""
+      if (status === "MISSING")
+        root.pruneRememberedWallpaper(themeName)
+      else if (status === "MISMATCH")
+        root.restoreThemeMemory(themeName)
     }
   }
 
-  Process {
+  // install-hook.sh copies one small file: 5 s; no output.
+  Run {
     id: hookInstallProc
+    deadlineMs: 5000
+    maxBytes: 4096
   }
 
-  Process {
+  // gsettings get answers the session bus once: 10 s covers a busy dconf.
+  Run {
     id: iconThemeProbeProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.acceptIconThemeProbe(String(text || ""))
+    environment: root.omarchyEnvironment
+    deadlineMs: 10000
+    maxBytes: 4096
+    onFinished: function(result) {
+      if (result.state === "ok") root.acceptIconThemeProbe(String(result.stdout || ""))
     }
   }
 
-  Process {
+  // icons-inventory.sh walks the icon directories: 30 s for a slow disk,
+  // one row per theme, 1 MiB holds hundreds.
+  Run {
     id: footerIconsInventoryProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        root.iconsInventoryThemes = IconThemeModel.loadInventoryRows(String(text || ""))
-        root.updateFooterIconPreviews()
-      }
+    environment: root.helperEnvironment
+    deadlineMs: 30000
+    maxBytes: 1048576
+    keepBytes: 1048576
+    onFinished: function(result) {
+      if (result.state !== "ok") return
+      root.iconsInventoryThemes = IconThemeModel.loadInventoryRows(String(result.stdout || ""))
+      root.updateFooterIconPreviews()
     }
   }
 
-  Process {
+  // apply-icons.sh writes one file and sets one gsettings key: 10 s.
+  Run {
     id: iconApplyProc
+    environment: root.omarchyEnvironment
+    deadlineMs: 10000
+    maxBytes: 4096
   }
 
-  Process {
+  // reset-icons.sh reads the theme directory through omarchy-theme-dir and
+  // sets one gsettings key: 10 s; one word of output.
+  Run {
     id: iconResetProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        const value = String(text || "").trim()
-        if (value) {
-          root.currentIconTheme = value
-          root.showStatus("Icon defaults · " + IconThemeModel.labelForIconTheme(value))
-        } else {
-          root.showStatus("Icon defaults restored")
-        }
+    environment: root.omarchyEnvironment
+    deadlineMs: 10000
+    maxBytes: 4096
+    onFinished: function(result) {
+      const value = result.state === "ok" ? String(result.stdout || "").trim() : ""
+      if (value) {
+        root.currentIconTheme = value
+        root.showStatus("Icon defaults · " + IconThemeModel.labelForIconTheme(value))
+      } else {
+        root.showStatus("Icon defaults restored")
       }
     }
   }
 
-  Process {
+  // icons-inventory.sh again, for icons mode: the same bounds.
+  Run {
     id: iconsInventoryProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root.acceptIconsInventory(String(text || ""))
-    }
-    onExited: function(exitCode) {
-      if (exitCode !== 0 && root.iconsMode)
+    environment: root.helperEnvironment
+    deadlineMs: 30000
+    maxBytes: 1048576
+    keepBytes: 1048576
+    onFinished: function(result) {
+      if (result.state === "ok") {
+        root.acceptIconsInventory(String(result.stdout || ""))
+      } else if (root.iconsMode) {
+        root.acceptIconsInventory("")
         root.showStatus("Icon inventory failed")
+      }
     }
   }
 
-  Process {
+  // remove-wallpaper.sh deletes one file and may set the next background
+  // through omarchy-theme-bg-set: 15 s; one path of output.
+  Run {
     id: wallpaperRemoveProc
     property bool clearMemory: false
     property string removedPath: ""
     property string themeName: ""
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        // Never touch the Process id via root here — it is undefined inside
-        // this StdioCollector and previously threw TypeError before accept.
-        root.wallpaperRemoveStdout = String(text || "").trim()
-      }
-    }
-    onExited: function(exitCode) {
-      if (exitCode === 0) {
-        root.acceptRemovedInstalledWallpaper(root.wallpaperRemoveStdout)
+    environment: root.omarchyEnvironment
+    deadlineMs: 15000
+    maxBytes: 65536
+    onFinished: function(result) {
+      if (result.state === "ok") {
+        root.acceptRemovedInstalledWallpaper(String(result.stdout || "").trim())
         return
       }
       wallpaperRemoveProc.removedPath = ""
       wallpaperRemoveProc.themeName = ""
       wallpaperRemoveProc.clearMemory = false
-      root.wallpaperRemoveStdout = ""
       // Restore carousel after optimistic drop when the script fails.
       root.reloadLocalWallpapersFromDisk("", "")
       root.showStatus("Wallpaper remove failed")
     }
   }
 
-  Process {
+  // reset-wallpaper.sh removes the theme's user backgrounds and sets the
+  // stock one through omarchy-theme-bg-set: 15 s; one path of output.
+  Run {
     id: wallpaperResetProc
     property string themeName: ""
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        // Mirror Remove: capture stdout only; accept runs from onExited.
-        root.wallpaperResetStdout = String(text || "").trim()
-      }
-    }
-    onExited: function(exitCode) {
+    environment: root.omarchyEnvironment
+    deadlineMs: 15000
+    maxBytes: 65536
+    onFinished: function(result) {
       root.restoringThemeMemory = false
-      if (exitCode === 0) {
-        root.acceptResetWallpaper(root.wallpaperResetStdout)
-        root.wallpaperResetStdout = ""
+      if (result.state === "ok") {
+        root.acceptResetWallpaper(String(result.stdout || "").trim())
         return
       }
       wallpaperResetProc.themeName = ""
-      root.wallpaperResetStdout = ""
       root.showStatus("Wallpaper reset failed")
     }
   }
 
-  Process {
+  // install-wallpaper.sh copies one image into the theme's backgrounds:
+  // a 20 MiB file on a slow disk is seconds, so 30 s; one path of output.
+  Run {
     id: wallpaperInstallProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        // Never accept here — mirror Remove/Reset. Driving accept from
-        // onStreamFinished alone missed successful installs when stdout
-        // collection was empty/late, leaving the file on disk unset until reopen.
-        root.wallpaperInstallStdout = String(text || "").trim()
-      }
-    }
-    onExited: function(exitCode) {
-      if (exitCode === 0) {
-        let installed = String(root.wallpaperInstallStdout || "").trim()
+    environment: root.helperEnvironment
+    deadlineMs: 30000
+    maxBytes: 65536
+    onFinished: function(result) {
+      if (result.state === "ok") {
+        let installed = String(result.stdout || "").trim()
         if (!installed) {
           installed = ThemeMemoryModel.installedWallpaperPath(
             root.pendingInstallSourcePath,
             root.homeDir,
             root.currentThemeName)
         }
-        root.wallpaperInstallStdout = ""
         root.acceptInstalledWallpaper(installed)
         return
       }
       const purpose = String(root.pendingInstallPurpose || "")
-      root.wallpaperInstallStdout = ""
       root.clearPendingInstall()
       if (purpose === "finish") {
         root.cancel()
@@ -2341,17 +2370,10 @@ Item {
     }
   }
 
-  Process {
-    id: applyProc
-    onExited: {
-      if (root.applySerial === root.requestSerial)
-        root.opened = false
-    }
-  }
-
   IconBrowseController {
     id: iconBrowse
     scriptPath: root.pluginScriptPath("icons-browse.sh")
+    helperEnvironment: root.helperEnvironment
     sorting: IconBrowseModel.normalizeFilters(root.iconsBrowseFilters).sorting
     onResultsReady: function(rows, append) { root.acceptIconsBrowseResults(rows, append) }
     onIconInstalled: function(themeName, themeNames) { root.onIconPackInstalled(themeName, themeNames) }
@@ -2360,6 +2382,7 @@ Item {
 
   WallpaperBrowserController {
     id: wallhaven
+    helperEnvironment: root.helperEnvironment
     onResultsReady: function(rows, append) { root.acceptWallhavenResults(rows, append) }
     onWallpaperReady: function(path) {
       if (root.wallhavenMode) root.finishSelection(path)
@@ -2372,6 +2395,9 @@ Item {
     selectedPath: root.currentPath()
     pickerOpen: root.opened
     inventoryScriptPath: root.pluginScriptPath("theme-inventory.sh")
+    omarchyBin: root.omarchyBin
+    helperEnvironment: root.helperEnvironment
+    omarchyEnvironment: root.omarchyEnvironment
     onThemeRemoved: function(name) { root.removeThemeFromRows(name) }
     onFocusRequested: Qt.callLater(root.focusPicker)
   }
@@ -2380,6 +2406,8 @@ Item {
     id: themeCatalog
     catalogScriptPath: root.pluginScriptPath("catalog.sh")
     installScriptPath: root.pluginScriptPath("install-theme.py")
+    helperEnvironment: root.helperEnvironment
+    omarchyEnvironment: root.omarchyEnvironment
     pickerOpen: root.opened
     installedThemes: themeManager.installedThemes
     stockThemes: themeManager.stockThemes
@@ -2388,7 +2416,8 @@ Item {
     onCatalogLoaded: function(rows) { root.enterCatalog(rows) }
     onThemeInstalled: root.cancel()
     onSourceRequested: function(repositoryUrl) {
-      Util.execArgv(["xdg-open", repositoryUrl])
+      sourceOpener.command = ["/usr/bin/xdg-open", repositoryUrl]
+      sourceOpener.start()
     }
     onFocusRequested: Qt.callLater(root.focusPicker)
   }

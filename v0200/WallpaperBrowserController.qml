@@ -1,6 +1,6 @@
 import Quickshell
-import Quickshell.Io
 import QtQuick
+import "../omakit"
 import "WallpaperBrowserModel.js" as WallpaperBrowserModel
 
 Item {
@@ -9,6 +9,9 @@ Item {
   property string homeDir: Quickshell.env("HOME")
   property string cacheHome: Quickshell.env("XDG_CACHE_HOME") || (homeDir + "/.cache")
   property string dataHome: Quickshell.env("XDG_DATA_HOME") || (homeDir + "/.local/share")
+  // The closed environment aether runs in: XDG paths for its cache
+  // (ImagePicker.qml names them).
+  property var helperEnvironment: ({})
   property int pagesPerRequest: 2
   property string categories: "111"
   property string sorting: "date_added"
@@ -19,7 +22,6 @@ Item {
   property int downloadSerial: 0
   readonly property int maxSearchOutputBytes: 4 * 1024 * 1024
   readonly property int maxDownloadOutputBytes: 8 * 1024
-  readonly property int maxErrorOutputBytes: 64 * 1024
   property var queuedRequest: null
   property string activeQuery: ""
   property string activeFilterKey: ""
@@ -87,16 +89,13 @@ Item {
     searchProc.activeFilterKey = request.filterKey
     searchProc.activePage = request.page
     searchProc.activeAppend = request.append
-    searchProc.outputTooLarge = false
-    searchProc.stdoutText = ""
-    searchProc.stderrText = ""
     searchProc.command = WallpaperBrowserModel.searchArguments(
       request.query,
       request.page,
       pagesPerRequest,
       request.filters
     )
-    searchProc.running = true
+    searchProc.start()
   }
 
   function loadMore() {
@@ -116,14 +115,14 @@ Item {
     errorMessage = ""
     downloadSerial += 1
     downloadProc.activeSerial = downloadSerial
-    downloadProc.outputTooLarge = false
-    downloadProc.stdoutText = ""
-    downloadProc.stderrText = ""
     downloadProc.command = command
-    downloadProc.running = true
+    downloadProc.start()
   }
 
-  Process {
+  // aether --wallhaven-thumbs fetches two pages of thumbnails; 60 s covers
+  // a slow link, and the cap is the browser's own 4 MiB search bound plus
+  // the error bound.
+  Run {
     id: searchProc
 
     property int activeSerial: 0
@@ -131,66 +130,39 @@ Item {
     property string activeFilterKey: ""
     property int activePage: 1
     property bool activeAppend: false
-    property bool outputTooLarge: false
-    property string stdoutText: ""
-    property string stderrText: ""
+    environment: root.helperEnvironment
+    deadlineMs: 60000
+    maxBytes: root.maxSearchOutputBytes
+    keepBytes: root.maxSearchOutputBytes
 
-    stdout: StdioCollector {
-      waitForEnd: true
-      onDataChanged: {
-        if (!searchProc.outputTooLarge
-            && data.length > root.maxSearchOutputBytes) {
-          searchProc.outputTooLarge = true
-          searchProc.signal(9)
-        }
-      }
-      onStreamFinished: {
-        if (!searchProc.outputTooLarge)
-          searchProc.stdoutText = String(text || "")
-      }
-    }
-
-    stderr: StdioCollector {
-      waitForEnd: true
-      onDataChanged: {
-        if (!searchProc.outputTooLarge
-            && data.length > root.maxErrorOutputBytes) {
-          searchProc.outputTooLarge = true
-          searchProc.signal(9)
-        }
-      }
-      onStreamFinished: {
-        if (!searchProc.outputTooLarge)
-          searchProc.stderrText = String(text || "")
-      }
-    }
-
-    onExited: function(exitCode) {
+    onFinished: function(result) {
       const isCurrent = activeSerial === root.requestSerial
 
-      if (isCurrent && outputTooLarge) {
+      if (isCurrent && result.state === "overflow") {
         root.errorMessage = "Aether returned too much Wallhaven output"
-      } else if (isCurrent && exitCode === 0) {
-        const result = WallpaperBrowserModel.parseSearchResponse(
-          stdoutText,
+      } else if (isCurrent && result.state === "ok") {
+        const parsed = WallpaperBrowserModel.parseSearchResponse(
+          result.stdout,
           root.cacheHome
         )
-        if (result.error) {
-          root.errorMessage = result.error
+        if (parsed.error) {
+          root.errorMessage = parsed.error
         } else {
           root.activeQuery = activeQuery
           root.activeFilterKey = activeFilterKey
-          root.currentPage = result.meta.currentPage
-          root.lastPage = result.meta.lastPage
-          root.totalResults = result.meta.total
+          root.currentPage = parsed.meta.currentPage
+          root.lastPage = parsed.meta.lastPage
+          root.totalResults = parsed.meta.total
           root.nextRawPage = activePage + root.pagesPerRequest
           root.errorMessage = ""
-          root.resultsReady(result.rows, activeAppend)
+          root.resultsReady(parsed.rows, activeAppend)
         }
       } else if (isCurrent) {
         root.errorMessage = WallpaperBrowserModel.errorFromStderr(
-          stderrText,
-          "Wallhaven search failed. Aether 4.19 or newer is required."
+          result.stderr,
+          result.state === "timeout"
+            ? "Wallhaven did not answer within 60 seconds"
+            : "Wallhaven search failed. Aether 4.19 or newer is required."
         )
       }
 
@@ -199,61 +171,36 @@ Item {
     }
   }
 
-  Process {
+  // aether --wallhaven-download fetches one full-size wallpaper, up to a
+  // few tens of MiB; 120 s covers a slow link, and its report is one JSON
+  // line (maxDownloadOutputBytes).
+  Run {
     id: downloadProc
 
     property int activeSerial: 0
-    property bool outputTooLarge: false
-    property string stdoutText: ""
-    property string stderrText: ""
+    environment: root.helperEnvironment
+    deadlineMs: 120000
+    maxBytes: root.maxDownloadOutputBytes
 
-    stdout: StdioCollector {
-      waitForEnd: true
-      onDataChanged: {
-        if (!downloadProc.outputTooLarge
-            && data.length > root.maxDownloadOutputBytes) {
-          downloadProc.outputTooLarge = true
-          downloadProc.signal(9)
-        }
-      }
-      onStreamFinished: {
-        if (!downloadProc.outputTooLarge)
-          downloadProc.stdoutText = String(text || "")
-      }
-    }
-
-    stderr: StdioCollector {
-      waitForEnd: true
-      onDataChanged: {
-        if (!downloadProc.outputTooLarge
-            && data.length > root.maxErrorOutputBytes) {
-          downloadProc.outputTooLarge = true
-          downloadProc.signal(9)
-        }
-      }
-      onStreamFinished: {
-        if (!downloadProc.outputTooLarge)
-          downloadProc.stderrText = String(text || "")
-      }
-    }
-
-    onExited: function(exitCode) {
+    onFinished: function(result) {
       if (activeSerial !== root.downloadSerial) return
 
-      if (outputTooLarge) {
+      if (result.state === "overflow") {
         root.errorMessage = "Aether returned too much download output"
-      } else if (exitCode === 0) {
-        const result = WallpaperBrowserModel.parseDownloadResponse(
-          stdoutText,
+      } else if (result.state === "ok") {
+        const parsed = WallpaperBrowserModel.parseDownloadResponse(
+          result.stdout,
           root.homeDir,
           root.dataHome
         )
-        if (result.error) root.errorMessage = result.error
-        else root.wallpaperReady(result.path)
+        if (parsed.error) root.errorMessage = parsed.error
+        else root.wallpaperReady(parsed.path)
       } else {
         root.errorMessage = WallpaperBrowserModel.errorFromStderr(
-          stderrText,
-          "Aether could not download this wallpaper"
+          result.stderr,
+          result.state === "timeout"
+            ? "The wallpaper download did not finish within two minutes"
+            : "Aether could not download this wallpaper"
         )
       }
 

@@ -74,7 +74,7 @@ test("classifies row-backed picker requests without inheriting stale directories
 
 test("builds Aether search arguments with the same safe defaults", () => {
   assert.deepEqual(model.searchArguments("solar punk", 3, 2), [
-    "aether",
+    "/usr/bin/aether",
     "--wallhaven-thumbs",
     "--json",
     "--pages",
@@ -94,7 +94,7 @@ test("builds Aether search arguments with the same safe defaults", () => {
     "solar punk"
   ])
   assert.deepEqual(model.searchArguments("", 3, 2), [
-    "aether",
+    "/usr/bin/aether",
     "--wallhaven-thumbs",
     "--json",
     "--pages",
@@ -228,7 +228,7 @@ test("passes selected filters to Aether without weakening SFW purity", () => {
       colors: "0066cc"
     }),
     [
-      "aether",
+      "/usr/bin/aether",
       "--wallhaven-thumbs",
       "--json",
       "--pages",
@@ -418,7 +418,7 @@ test("accepts downloads only from Aether's wallpaper directory", () => {
     { error: "", path: "/srv/data/aether/wallpapers/wallhaven-xyz.png" }
   )
   assert.deepEqual(model.downloadArguments("abc123"), [
-    "aether",
+    "/usr/bin/aether",
     "--wallhaven-download",
     "abc123",
     "--json"

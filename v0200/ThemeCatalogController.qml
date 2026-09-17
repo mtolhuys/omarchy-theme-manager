@@ -1,5 +1,5 @@
-import Quickshell.Io
 import QtQuick
+import "../omakit"
 import "ThemeCatalogModel.js" as ThemeCatalogModel
 
 Item {
@@ -7,6 +7,11 @@ Item {
 
   property string catalogScriptPath: ""
   property string installScriptPath: ""
+  // The closed environment the helpers run in: XDG paths and, for the
+  // install, the session variables `omarchy theme install` needs
+  // (ImagePicker.qml names them).
+  property var helperEnvironment: ({})
+  property var omarchyEnvironment: ({})
   property bool pickerOpen: false
   property var installedThemes: ({})
   property var stockThemes: ({})
@@ -83,7 +88,7 @@ Item {
     errorMessage = ""
     catalogStderr = ""
     catalogProc.command = [catalogScriptPath]
-    catalogProc.running = true
+    catalogProc.start()
   }
 
   function requestInstall() {
@@ -125,64 +130,59 @@ Item {
     installStderr = ""
     installProc.targetEntry = entry
     installProc.command = [installScriptPath, entry.repositoryUrl]
-    installProc.running = true
+    installProc.start()
   }
 
-  Process {
+  // catalog.sh renders at most OUTPUT_MAX_BYTES (4 MiB) from a cache it
+  // refreshes with curl under its own 10 s connect and 30 s total limits;
+  // 45 s covers that refresh, and the cap is the script's own output bound.
+  Run {
     id: catalogProc
+    environment: root.helperEnvironment
+    deadlineMs: 45000
+    maxBytes: 4194304
+    keepBytes: 4194304
 
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        try {
-          const parsed = JSON.parse(String(text || "{}"))
-          root.payload = parsed
-          root.rebuildRows(true)
-          if (root.rows.length === 0)
-            root.errorMessage = "No themes were found in the catalog"
-        } catch (_) {
-          root.rows = []
-          root.errorMessage = "The theme catalog returned invalid data"
-        }
-      }
-    }
-
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        root.catalogStderr = String(text || "").trim()
-        if (!catalogProc.running && root.errorMessage !== "" && root.catalogStderr !== "")
-          root.errorMessage = root.catalogStderr
-      }
-    }
-
-    onExited: function(exitCode) {
+    onFinished: function(result) {
       root.loading = false
-      if (exitCode !== 0) {
+      root.catalogStderr = String(result.stderr || "").trim()
+      if (result.state !== "ok") {
         root.rows = []
-        root.errorMessage = root.catalogStderr || "Could not load the theme catalog"
+        root.errorMessage = root.catalogStderr || (result.state === "timeout"
+          ? "The theme catalog did not answer in time"
+          : "Could not load the theme catalog")
         root.focusRequested()
+        return
+      }
+      try {
+        const parsed = JSON.parse(String(result.stdout || "{}"))
+        root.payload = parsed
+        root.rebuildRows(true)
+        if (root.rows.length === 0)
+          root.errorMessage = "No themes were found in the catalog"
+      } catch (_) {
+        root.rows = []
+        root.errorMessage = "The theme catalog returned invalid data"
       }
     }
   }
 
-  Process {
+  // install-theme.py bounds its own download to 60 s (DOWNLOAD_SECONDS) and
+  // 89 MiB, then `omarchy theme install` applies the sanitized copy: 120 s is
+  // the download's own limit twice over, and the output is one slug line.
+  Run {
     id: installProc
     property var targetEntry: null
+    environment: root.omarchyEnvironment
+    deadlineMs: 120000
+    maxBytes: 65536
 
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        root.installStderr = String(text || "").trim()
-        if (!installProc.running && root.errorMessage !== "" && root.installStderr !== "")
-          root.errorMessage = root.installStderr
-      }
-    }
-
-    onExited: function(exitCode) {
+    onFinished: function(result) {
       const installedEntry = targetEntry
       targetEntry = null
       root.busy = false
+      root.installStderr = String(result.stderr || "").trim()
+      const exitCode = result.state === "ok" ? 0 : (typeof result.exitCode === "number" ? result.exitCode : -1)
 
       if (exitCode === 0 && installedEntry) {
         root.themeInstalled(installedEntry.installSlug)
@@ -202,6 +202,7 @@ Item {
       } else {
         root.sourceFallbackRepository = ""
         root.errorMessage = root.installStderr
+          || (result.state === "timeout" ? "Theme install did not finish within two minutes" : "")
           || "Could not install " + (installedEntry ? installedEntry.displayName : "the theme")
         root.focusRequested()
       }
