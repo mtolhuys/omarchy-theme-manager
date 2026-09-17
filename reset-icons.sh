@@ -29,7 +29,8 @@ case $value in
 esac
 
 state="$HOME/.local/state/omarchy/current/theme/icons.theme"
-mkdir -p "$(dirname "$state")"
+# shellcheck disable=SC2174 # the parents exist; the mode is for the one directory this may create
+mkdir -p -m 0700 "$(dirname "$state")"
 printf '%s\n' "$value" >"$state"
 gsettings set org.gnome.desktop.interface icon-theme "$value"
 printf '%s\n' "$value"

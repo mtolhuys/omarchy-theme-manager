@@ -18,7 +18,8 @@ fi
   exit 1
 }
 
-mkdir -p "$(dirname "$dest")"
+# shellcheck disable=SC2174 # the parents exist; the mode is for the one directory this may create
+mkdir -p -m 0700 "$(dirname "$dest")"
 if [[ ! -f $dest ]] || ! cmp -s "$src" "$dest"; then
   cp "$src" "$dest"
   chmod +x "$dest"
