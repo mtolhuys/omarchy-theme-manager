@@ -1,7 +1,7 @@
-// omakit block: run 0.2.0
+// omakit block: run 0.2.1
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Maarten Tolhuijs
-// Source: omakit blocks/run/Run.qml, commit f41b8671d74dc4caa92b28a3dd56118d264be446
+// Source: omakit blocks/run/Run.qml, commit 99c56780d09288cbbd6f8674e49783d44c039c79
 // Body sha256: 0e54a5a82aacbdcd2e61163091bbeebb597787abb285df86bf85d7d835451419
 // end of omakit block header
 //

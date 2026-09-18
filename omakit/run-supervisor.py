@@ -1,8 +1,8 @@
-# omakit block: run 0.2.0
+# omakit block: run 0.2.1
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2026 Maarten Tolhuijs
-# Source: omakit blocks/run/run-supervisor.py, commit f41b8671d74dc4caa92b28a3dd56118d264be446
-# Body sha256: 07c3d5fa103fcbfc40eb081206fdd8571c6e3852a188389d79bbac12db00170d
+# Source: omakit blocks/run/run-supervisor.py, commit 99c56780d09288cbbd6f8674e49783d44c039c79
+# Body sha256: d872a5fc91f648ba4f9b9654d5cb19bba17a8afa4abb618502a04f47f66a6be1
 # end of omakit block header
 #
 # The supervisor behind Run.qml. Started by Run.qml as
@@ -42,7 +42,10 @@ CONTROL = re.compile("[\\x00-\\x08\\x0b-\\x1f\\x7f-\\x9f\\u061c\\u200e\\u200f\\u
 # through and `-m json.tool` is not a string); and the wrappers that hand
 # argv on to another command, with the options that take a value and the
 # positionals before the command. Best effort over the forms listed here,
-# not a sandbox: refused unless allowShellString.
+# not a sandbox: refused unless allowShellString. The wrappers are the
+# neutral ones: a privileged wrapper is not on the list, because Run
+# decides nothing about privilege and a plugin that runs one is in review
+# for that on its own (0.2.1).
 SHELLS = frozenset(["sh", "bash", "dash", "zsh", "ksh", "fish", "rbash", "ash", "mksh", "busybox"])
 SHELL_VALUE_OPTIONS = frozenset(["-o", "+o", "-O", "+O", "--rcfile", "--init-file", "-C", "-d", "--debug-level"])
 INTERPRETERS = {
@@ -54,7 +57,7 @@ INTERPRETERS = {
     "node": ("ep", frozenset(["-r", "--require", "--import", "--loader", "--experimental-loader", "-C", "--conditions"])),
 }
 LONG_STRING_FLAGS = frozenset(["--eval", "--print", "--run"])
-WRAPPERS = frozenset(["env", "nice", "timeout", "setsid", "flock", "xargs", "sudo", "doas", "nohup", "stdbuf", "ionice", "chrt", "unbuffer", "busybox"])
+WRAPPERS = frozenset(["env", "nice", "timeout", "setsid", "flock", "xargs", "nohup", "stdbuf", "ionice", "chrt", "unbuffer", "busybox"])
 WRAPPER_VALUE_OPTIONS = frozenset(["-u", "-C", "-S", "-n", "-s", "-k", "-w", "-E", "-L", "-P", "-a", "-d", "-I", "-i", "-o", "-e", "-p", "-g", "-D", "-h", "-r", "-t", "-U", "-T", "--adjustment", "--signal", "--kill-after", "--timeout", "--conflict-exit-code", "--input", "--output", "--error", "--max-args", "--max-lines", "--max-procs", "--delimiter", "--arg-file", "--replace", "--user", "--group", "--chdir", "--split-string", "--unset", "--class", "--classdata", "--pid"])
 POSITIONAL_BEFORE_COMMAND = {"timeout": 1, "flock": 1}
 
