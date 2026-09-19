@@ -379,12 +379,50 @@ const parseDownloadResponse = (text, homeDir, dataHome) => {
   return { error: "", path }
 }
 
-const errorFromStderr = (stderr, fallback) => {
-  const firstLine = stringValue(stderr)
+const boundedErrorText = (value) =>
+  stringValue(value)
+    .replace(/[\u0000-\u001f\u007f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240)
+
+const friendlyAetherError = (message) => {
+  const normalized = boundedErrorText(message)
+  const httpMatch = normalized.match(/wallhaven API returned (\d{3})\b/i)
+  if (httpMatch) {
+    const status = Number(httpMatch[1])
+    if (status === 429) return "Wallhaven is rate limiting requests. Try again shortly."
+    if (status >= 500)
+      return "Wallhaven is temporarily unavailable (HTTP " + status + "). Try again later."
+    return "Wallhaven request failed (HTTP " + status + ")."
+  }
+  if (
+    /resolve remote host|temporary failure in name resolution|network is unreachable/i.test(
+      normalized
+    )
+  )
+    return "Wallhaven could not be reached. Check your connection and retry."
+  return normalized
+}
+
+// Aether's --json mode writes structured failures to stdout and exits non-zero.
+// Older releases and process-launch errors may still use stderr or no output.
+const processError = (stdout, stderr, fallback) => {
+  const parsed = parsedJson(stringValue(stdout))
+  const jsonError =
+    !parsed.invalid && parsed.payload && typeof parsed.payload === "object"
+      ? stringValue(parsed.payload.error)
+      : ""
+  const stderrLine = stringValue(stderr)
     .split("\n")
     .map((line) => line.trim())
     .find(Boolean)
-  return (firstLine || fallback || "Aether could not complete the Wallhaven request").slice(0, 240)
+  return (
+    friendlyAetherError(jsonError) ||
+    friendlyAetherError(stderrLine) ||
+    boundedErrorText(fallback) ||
+    "Aether could not complete the Wallhaven request"
+  )
 }
 
 if (typeof module !== "undefined") {
@@ -419,6 +457,6 @@ if (typeof module !== "undefined") {
     parseSearchResponse,
     appendUniqueRows,
     parseDownloadResponse,
-    errorFromStderr
+    processError
   }
 }

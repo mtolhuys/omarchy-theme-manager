@@ -24,6 +24,9 @@ the release has been pushed.
 Maintainer notes (not required by form):
 
 - Category already Appearance; tag quickshell
+- Version 0.6.9 decodes Aether's structured Wallhaven errors from stdout, so
+  upstream HTTP 5xx responses, rate limits, and connectivity failures no longer
+  falsely claim that Aether 4.19+ is missing
 - Addresses the resource-exhaustion blocker in issue #5344: no remote Git clone,
   pack fetch, or lazy blob download occurs
 - A 1 MiB-bounded Git smart-HTTP reference advertisement resolves one exact

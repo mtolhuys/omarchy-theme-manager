@@ -302,6 +302,47 @@ test("rejects invalid and unexpectedly large Aether responses", () => {
   )
 })
 
+test("surfaces Aether JSON failures instead of misdiagnosing the installed version", () => {
+  assert.equal(
+    model.processError(
+      JSON.stringify({
+        error: "Search failed: wallhaven API returned 521: error code: 521\n"
+      }),
+      "",
+      "Aether 4.19 or newer is required"
+    ),
+    "Wallhaven is temporarily unavailable (HTTP 521). Try again later."
+  )
+  assert.equal(
+    model.processError(
+      JSON.stringify({ error: "Search failed: wallhaven API returned 429" }),
+      "",
+      "fallback"
+    ),
+    "Wallhaven is rate limiting requests. Try again shortly."
+  )
+  assert.equal(
+    model.processError(
+      JSON.stringify({
+        error:
+          'Search failed: wallhaven search request failed: Get "https://wallhaven.cc": resolve remote host: Temporary failure in name resolution'
+      }),
+      "",
+      "fallback"
+    ),
+    "Wallhaven could not be reached. Check your connection and retry."
+  )
+})
+
+test("falls back from invalid stdout to bounded stderr and launch guidance", () => {
+  assert.equal(
+    model.processError("not json", "Error: unsupported option\nmore detail", "fallback"),
+    "Error: unsupported option"
+  )
+  assert.equal(model.processError("", "", "Install Aether 4.19+"), "Install Aether 4.19+")
+  assert.equal(model.processError("", "x".repeat(300), "fallback").length, 240)
+})
+
 test("drops records that do not preserve the SFW response contract", () => {
   const parsed = model.parseSearchResponse(
     response([

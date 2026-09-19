@@ -188,7 +188,8 @@ Item {
           root.resultsReady(result.rows, activeAppend)
         }
       } else if (isCurrent) {
-        root.errorMessage = WallpaperBrowserModel.errorFromStderr(
+        root.errorMessage = WallpaperBrowserModel.processError(
+          stdoutText,
           stderrText,
           "Wallhaven search failed. Aether 4.19 or newer is required."
         )
@@ -251,7 +252,8 @@ Item {
         if (result.error) root.errorMessage = result.error
         else root.wallpaperReady(result.path)
       } else {
-        root.errorMessage = WallpaperBrowserModel.errorFromStderr(
+        root.errorMessage = WallpaperBrowserModel.processError(
+          stdoutText,
           stderrText,
           "Aether could not download this wallpaper"
         )

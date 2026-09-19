@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.9 - 2026-09-19
+
+- Decode Aether's structured JSON errors from stdout when Wallhaven searches or
+  downloads fail. Upstream HTTP 5xx responses, rate limits, and connectivity
+  failures now show accurate recovery guidance instead of incorrectly claiming
+  that Aether 4.19+ is missing.
+
 ## 0.6.8 - 2026-09-17
 
 - Explain resource-limit refusals with the resource, observed size, configured
