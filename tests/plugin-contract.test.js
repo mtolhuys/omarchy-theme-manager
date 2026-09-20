@@ -97,7 +97,7 @@ test("resolves bundled helpers without private host manifest fields", async () =
     "catalog.sh",
     "icons-browse.sh",
     "icons-inventory.sh",
-    "aether-wallpapers.sh",
+    "wallpaper-catalog.py",
     "install-theme.py",
     "install-wallpaper.sh",
     "remove-wallpaper.sh",
@@ -171,7 +171,7 @@ test("publishes catalog cache entries through a checked directory descriptor", a
   assert.match(cache, /dst_dir_fd=cache_fd/)
 })
 
-test("delegates open wallpaper traffic exclusively to bounded Aether processes", async () => {
+test("runs open wallpaper traffic through the bounded bundled provider", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   const runtimeDir = dirname(manifest.entryPoints.overlay)
   const sources = await Promise.all(
@@ -185,7 +185,7 @@ test("delegates open wallpaper traffic exclusively to bounded Aether processes",
   )
   const [picker, controller, model, filterBar, filterSheet] = sources
 
-  const launcher = await read("aether-wallpapers.sh")
+  const provider = await read("wallpaper-catalog.py")
 
   assert.match(model, /"--wallpaper-thumbs"/)
   assert.match(model, /"--wallpaper-download"/)
@@ -196,9 +196,16 @@ test("delegates open wallpaper traffic exclusively to bounded Aether processes",
   assert.match(controller, /maxDownloadOutputBytes:\s*8 \* 1024/)
   assert.match(controller, /maxErrorOutputBytes:\s*64 \* 1024/)
   assert.match(controller, /command\[0\] = root\.commandPath/)
-  assert.match(picker, /commandPath: root\.pluginScriptPath\("aether-wallpapers\.sh"\)/)
-  assert.match(launcher, /\.local\/bin\/aether/)
-  assert.match(launcher, /exec aether "\$@"/)
+  assert.match(picker, /commandPath: root\.pluginScriptPath\("wallpaper-catalog\.py"\)/)
+  assert.match(provider, /MAX_API_BYTES = 4 \* 1024 \* 1024/)
+  assert.match(provider, /MAX_THUMB_BYTES = 12 \* 1024 \* 1024/)
+  assert.match(provider, /MAX_IMAGE_BYTES = 64 \* 1024 \* 1024/)
+  assert.match(provider, /SEARCH_CACHE_TTL_SECONDS = 6 \* 60 \* 60/)
+  assert.match(provider, /ThreadPoolExecutor\(max_workers=3\)/)
+  assert.match(provider, /os\.O_DIRECTORY \| os\.O_NOFOLLOW/)
+  assert.match(provider, /os\.O_EXCL \| os\.O_NOFOLLOW/)
+  assert.match(provider, /def trusted_host\(host: str\)/)
+  assert.doesNotMatch(provider, /wallhaven\.cc/)
   assert.equal(
     (controller.match(/WallpaperBrowserModel\.processError\(\s*stdoutText,/g) || []).length,
     2

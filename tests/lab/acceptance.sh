@@ -27,9 +27,7 @@ omarchy_host_test() {
       -c user.email=lab@invalid \
       commit -qm candidate"
 
-  ssh_session "aether --version && \
-    aether --help | grep -q -- '--wallhaven-thumbs' && \
-    aether --help | grep -q -- '--wallhaven-download'" || return 1
+  ssh_session "python3 --version && magick -version" || return 1
 
   ssh_session "omarchy-plugin-add $install_source_q --enable --yes" || return 1
   wait_for_guest_state "Theme Manager $version is installed" 25 ssh_session \
@@ -96,7 +94,7 @@ omarchy_host_test() {
        ! -path \"\$dir/backgrounds/*.webp\" ! -path \"\$dir/backgrounds/*.bmp\" \
        -print -quit | grep -q ." || return 1
 
-  ssh_session "rm -rf \"\$HOME/.cache/aether/wallhaven-thumbs\"" || return 1
+  ssh_session "rm -rf \"\$HOME/.cache/omarchy-theme-manager/wallpaper-thumbs\"" || return 1
   press meta_l-ctrl-spc || return 1
   wait_for_guest_state "the background shortcut opens wallpaper mode, not theme mode" 20 ssh_session \
     "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
@@ -135,9 +133,9 @@ omarchy_host_test() {
        \"\$HOME/.config/omarchy/wallpaper-command-center.json\"" || return 1
 
   press ctrl-b || return 1
-  wait_for_guest_state "Ctrl+B enters the Aether-backed Wallhaven browser" 55 ssh_session \
-    "test -d \"\$HOME/.cache/aether/wallhaven-thumbs\" && \
-     find \"\$HOME/.cache/aether/wallhaven-thumbs\" -maxdepth 1 -type f -print -quit | grep -q . && \
+  wait_for_guest_state "Ctrl+B enters the built-in open wallpaper catalog" 55 ssh_session \
+    "test -d \"\$HOME/.cache/omarchy-theme-manager/wallpaper-thumbs\" && \
+     find \"\$HOME/.cache/omarchy-theme-manager/wallpaper-thumbs\" -maxdepth 1 -type f -print -quit | grep -q . && \
      omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
        jq -e '.opened == true and .mode == \"wallhaven\" and .images > 0'" || return 1
   capture_console "success-theme-manager-05-wallhaven" || return 1
@@ -145,24 +143,23 @@ omarchy_host_test() {
   for key in m o u n t a i n; do
     press "$key" || return 1
   done
-  wait_for_guest_state "typing performs a real Wallhaven name search" 55 ssh_session \
-    "! pgrep -u \"\$USER\" -x aether >/dev/null && \
-     omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+  wait_for_guest_state "typing performs a real catalog name search" 55 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
        jq -e '.mode == \"wallhaven\" and .query == \"mountain\" and .images > 0'" || return 1
 
   initial_thumb_count=$(ssh_session \
-    "find \"\$HOME/.cache/aether/wallhaven-thumbs\" -maxdepth 1 -type f | wc -l") || return 1
+    "find \"\$HOME/.cache/omarchy-theme-manager/wallpaper-thumbs\" -maxdepth 1 -type f | wc -l") || return 1
   for _step in {1..40}; do
     press right || return 1
   done
-  wait_for_guest_state "near-end navigation automatically loads another Aether batch" 55 ssh_session \
-    "(( \$(find \"\$HOME/.cache/aether/wallhaven-thumbs\" -maxdepth 1 -type f | wc -l) > $initial_thumb_count ))" || return 1
+  wait_for_guest_state "near-end navigation automatically loads another catalog batch" 55 ssh_session \
+    "(( \$(find \"\$HOME/.cache/omarchy-theme-manager/wallpaper-thumbs\" -maxdepth 1 -type f | wc -l) > $initial_thumb_count ))" || return 1
 
   press ctrl-f || return 1
-  wait_for_guest_state "the staged filter sheet opens without leaving Wallhaven" 20 ssh_session \
+  wait_for_guest_state "the staged filter sheet opens without leaving the catalog" 20 ssh_session \
     "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
        jq -e '.mode == \"wallhaven\" and .filtersOpen == true'" || return 1
-  ssh_session "rm -rf \"\$HOME/.cache/aether/wallhaven-thumbs\"" || return 1
+  ssh_session "rm -rf \"\$HOME/.cache/omarchy-theme-manager/wallpaper-thumbs\"" || return 1
   press right || return 1
   press spc || return 1
   press down || return 1
@@ -173,14 +170,13 @@ omarchy_host_test() {
   for _color_step in {1..5}; do
     press right || return 1
   done
-  ssh_session "test ! -e \"\$HOME/.cache/aether/wallhaven-thumbs\"" || return 1
+  ssh_session "test ! -e \"\$HOME/.cache/omarchy-theme-manager/wallpaper-thumbs\"" || return 1
   capture_console "success-theme-manager-06-filter-sheet" || return 1
 
   press ret || return 1
-  wait_for_guest_state "applying staged blue-palette filters starts one fresh Aether search" 55 ssh_session \
-    "test -d \"\$HOME/.cache/aether/wallhaven-thumbs\" && \
-     find \"\$HOME/.cache/aether/wallhaven-thumbs\" -maxdepth 1 -type f -print -quit | grep -q . && \
-     ! pgrep -u \"\$USER\" -x aether >/dev/null && \
+  wait_for_guest_state "applying staged filters starts one fresh catalog search" 55 ssh_session \
+    "test -d \"\$HOME/.cache/omarchy-theme-manager/wallpaper-thumbs\" && \
+     find \"\$HOME/.cache/omarchy-theme-manager/wallpaper-thumbs\" -maxdepth 1 -type f -print -quit | grep -q . && \
      omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
        jq -e '.mode == \"wallhaven\" and .filtersOpen == false and .images > 0'" || return 1
   capture_console "success-theme-manager-07-filtered" || return 1
@@ -202,7 +198,7 @@ omarchy_host_test() {
   wait_for_guest_state "a planted wallpaper symlink cannot redirect publication" 20 ssh_session \
     "theme=\$(cat \"\$HOME/.local/state/omarchy/current/theme.name\") && \
      theme_dir=\"\$HOME/.config/omarchy/backgrounds/\$theme\" && \
-     source=\"\$HOME/.cache/aether/wallpapers/symlink-guard.png\" && \
+     source=\"\$HOME/.local/share/omarchy-theme-manager/wallpapers/symlink-guard.png\" && \
      victim=\"\$HOME/theme-manager-symlink-victim\" && \
      mkdir -p \"\$(dirname \"\$source\")\" && \
      cp -- \"\$(readlink -f \"\$HOME/.local/state/omarchy/current/background\")\" \"\$source\" && \
@@ -235,5 +231,5 @@ omarchy_host_test() {
       'all(.[]; .id != \"io.github.mtolhuys.theme-manager\") and \
        any(.[]; .id == \"omarchy.image-picker\" and .enabled == true)'" || return 1
 
-  printf 'ok - favorites, live palette, theme catalog, Aether browsing, and plugin lifecycle completed\n'
+  printf 'ok - favorites, live palette, theme catalog, open wallpaper browsing, and plugin lifecycle completed\n'
 }

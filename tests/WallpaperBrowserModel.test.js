@@ -21,7 +21,7 @@ const wallpaper = (id, overrides = {}) => ({
   license: "CC BY",
   author: "Example artist",
   url: "https://www.opendesktop.org/p/" + id,
-  thumbnailPath: "/tmp/aether/wallpaper-thumbs/ocs-" + id + ".jpg",
+  thumbnailPath: "/tmp/omarchy-theme-manager/wallpaper-thumbs/ocs-" + id + ".jpg",
   ...overrides
 })
 
@@ -46,7 +46,7 @@ test("recognizes only Omarchy background-picker requests", () => {
   )
 })
 
-test("builds bounded Aether open-wallpaper arguments", () => {
+test("builds bounded bundled-catalog arguments", () => {
   assert.deepEqual(
     model.searchArguments("solar punk", 3, 2, {
       collection: "community-dark",
@@ -54,7 +54,7 @@ test("builds bounded Aether open-wallpaper arguments", () => {
       license: "public-domain"
     }),
     [
-      "aether",
+      "wallpaper-catalog",
       "--wallpaper-thumbs",
       "--json",
       "--pages",
@@ -149,7 +149,7 @@ test("parses open catalog metadata into safe carousel rows", () => {
     id: "ocs-123",
     filePath: "wallpaper:ocs-123",
     fileName: "ocs-123",
-    thumbnailPath: "/tmp/aether/wallpaper-thumbs/ocs-123.jpg",
+    thumbnailPath: "/tmp/omarchy-theme-manager/wallpaper-thumbs/ocs-123.jpg",
     displayName: "Aurora Abstract 4K",
     resolution: "3840x2160",
     category: "Abstract",
@@ -193,16 +193,19 @@ test("drops records without a known collection, provider-scoped id, or license",
   )
 })
 
-test("accepts previews only from Aether's wallpaper thumbnail cache", () => {
+test("accepts previews only from Theme Manager's wallpaper thumbnail cache", () => {
   const parsePath = (thumbnailPath, cacheHome = "/home/alice/.cache") =>
     model.parseSearchResponse(response([wallpaper("123", { thumbnailPath })]), cacheHome).rows[0]
       .thumbnailPath
   assert.equal(
-    parsePath("/home/alice/.cache/aether/wallpaper-thumbs/ocs-123.jpg"),
-    "/home/alice/.cache/aether/wallpaper-thumbs/ocs-123.jpg"
+    parsePath("/home/alice/.cache/omarchy-theme-manager/wallpaper-thumbs/ocs-123.jpg"),
+    "/home/alice/.cache/omarchy-theme-manager/wallpaper-thumbs/ocs-123.jpg"
   )
   assert.equal(parsePath("/home/alice/Pictures/private.jpg"), "")
-  assert.equal(parsePath("/home/alice/.cache/aether/wallpaper-thumbs/../private.jpg"), "")
+  assert.equal(
+    parsePath("/home/alice/.cache/omarchy-theme-manager/wallpaper-thumbs/../private.jpg"),
+    ""
+  )
 })
 
 test("persists all open-catalog filters and the sticky query", () => {
@@ -233,7 +236,7 @@ test("persists all open-catalog filters and the sticky query", () => {
   assert.equal(roundTrip.query, "forest canopy")
 })
 
-test("maps wallpaper-provider failures without blaming Aether's version", () => {
+test("maps wallpaper-provider failures without exposing implementation details", () => {
   assert.equal(
     model.processError(
       JSON.stringify({ error: "Wallpaper search failed: wallpaper provider returned HTTP 503" }),
@@ -260,27 +263,32 @@ test("maps wallpaper-provider failures without blaming Aether's version", () => 
   )
 })
 
-test("accepts downloads only from Aether's wallpaper directory", () => {
+test("accepts downloads only from Theme Manager's wallpaper directory", () => {
   const home = "/home/alice"
   assert.deepEqual(
     model.parseDownloadResponse(
-      JSON.stringify({ path: home + "/.local/share/aether/wallpapers/commons-123.jpg" }),
+      JSON.stringify({
+        path: home + "/.local/share/omarchy-theme-manager/wallpapers/commons-123.jpg"
+      }),
       home
     ),
-    { error: "", path: home + "/.local/share/aether/wallpapers/commons-123.jpg" }
+    {
+      error: "",
+      path: home + "/.local/share/omarchy-theme-manager/wallpapers/commons-123.jpg"
+    }
   )
   assert.match(
     model.parseDownloadResponse(JSON.stringify({ path: "/tmp/wallpaper.jpg" }), home).error,
     /unexpected/i
   )
   assert.deepEqual(model.downloadArguments("ocs-123"), [
-    "aether",
+    "wallpaper-catalog",
     "--wallpaper-download",
     "ocs-123",
     "--json"
   ])
   assert.deepEqual(model.downloadArguments("omarchy-8342267563586712271"), [
-    "aether",
+    "wallpaper-catalog",
     "--wallpaper-download",
     "omarchy-8342267563586712271",
     "--json"

@@ -146,7 +146,7 @@ const boundedPage = (page) => String(Math.max(1, integerValue(page, 1)))
 const searchArguments = (query, page = 1, pages = 2, filters = {}) => {
   const normalized = normalizeFilters(filters)
   const args = [
-    "aether",
+    "wallpaper-catalog",
     "--wallpaper-thumbs",
     "--json",
     "--pages",
@@ -167,13 +167,13 @@ const searchArguments = (query, page = 1, pages = 2, filters = {}) => {
 
 const downloadArguments = (id) =>
   wallpaperIdPattern.test(stringValue(id))
-    ? ["aether", "--wallpaper-download", stringValue(id), "--json"]
+    ? ["wallpaper-catalog", "--wallpaper-download", stringValue(id), "--json"]
     : []
 
 const safeThumbnailPath = (path, cacheHome) => {
   const value = stringValue(path)
   const cacheRoot = stringValue(cacheHome).replace(/\/+$/, "")
-  const expectedPrefix = cacheRoot + "/aether/wallpaper-thumbs/"
+  const expectedPrefix = cacheRoot + "/omarchy-theme-manager/wallpaper-thumbs/"
   const fileName = value.slice(expectedPrefix.length)
   return cacheRoot.startsWith("/") &&
     value.startsWith(expectedPrefix) &&
@@ -243,13 +243,13 @@ const parsedJson = (text) => {
 
 const searchPayloadError = (responseText, parsed) => {
   if (responseText.length > maxSearchResponseLength)
-    return "Aether returned an oversized wallpaper response"
-  if (parsed.invalid) return "Aether returned an invalid wallpaper response"
+    return "The wallpaper catalog returned an oversized response"
+  if (parsed.invalid) return "The wallpaper catalog returned an invalid response"
   const payload = parsed.payload
   if (!payload || typeof payload !== "object" || !Array.isArray(payload.wallpapers))
-    return "Aether returned an incomplete wallpaper response"
+    return "The wallpaper catalog returned an incomplete response"
   if (payload.wallpapers.length > maxWallpapersPerResponse)
-    return "Aether returned too many wallpaper records"
+    return "The wallpaper catalog returned too many records"
   return ""
 }
 
@@ -303,7 +303,7 @@ const appendUniqueRows = (existingRows, incomingRows) => {
 }
 
 const isDownloadedWallpaperPath = (path, home, dataRoot) => {
-  const expectedPrefix = dataRoot + "/aether/wallpapers/"
+  const expectedPrefix = dataRoot + "/omarchy-theme-manager/wallpapers/"
   return (
     home.startsWith("/") &&
     dataRoot.startsWith("/") &&
@@ -317,14 +317,15 @@ const isDownloadedWallpaperPath = (path, home, dataRoot) => {
 const parseDownloadResponse = (text, homeDir, dataHome) => {
   const responseText = stringValue(text)
   if (responseText.length > maxDownloadResponseLength)
-    return { error: "Aether returned an oversized download response", path: "" }
+    return { error: "The wallpaper catalog returned an oversized download response", path: "" }
   const parsed = parsedJson(responseText)
-  if (parsed.invalid) return { error: "Aether returned an invalid download response", path: "" }
+  if (parsed.invalid)
+    return { error: "The wallpaper catalog returned an invalid download response", path: "" }
   const home = stringValue(homeDir).replace(/\/+$/, "")
   const dataRoot = (stringValue(dataHome) || home + "/.local/share").replace(/\/+$/, "")
   const path = stringValue(parsed.payload && parsed.payload.path)
   if (!isDownloadedWallpaperPath(path, home, dataRoot))
-    return { error: "Aether returned an unexpected wallpaper path", path: "" }
+    return { error: "The wallpaper catalog returned an unexpected path", path: "" }
   return { error: "", path }
 }
 
@@ -335,7 +336,7 @@ const boundedErrorText = (value) =>
     .trim()
     .slice(0, 240)
 
-const friendlyAetherError = (message) => {
+const friendlyCatalogError = (message) => {
   const normalized = boundedErrorText(message)
   const httpMatch = normalized.match(/(?:provider returned HTTP|returned HTTP) (\d{3})\b/i)
   if (httpMatch) {
@@ -369,10 +370,10 @@ const processError = (stdout, stderr, fallback) => {
     .map((line) => line.trim())
     .find(Boolean)
   return (
-    friendlyAetherError(jsonError) ||
-    friendlyAetherError(stderrLine) ||
+    friendlyCatalogError(jsonError) ||
+    friendlyCatalogError(stderrLine) ||
     boundedErrorText(fallback) ||
-    "Aether could not complete the wallpaper request"
+    "The wallpaper catalog could not complete the request"
   )
 }
 

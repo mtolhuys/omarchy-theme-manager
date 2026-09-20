@@ -37,7 +37,7 @@
   Omarchy badge. Rendering stays bounded to a small reusable delegate pool even
   when the catalog reaches its 2,000-record input ceiling.
 - **Wallpaper picker** — favorites (`Ctrl+D`), live palette while browsing,
-  Actions hamburger (Save / All / Reset / Remove), open art via Aether. Rapid
+  Actions hamburger (Save / All / Reset / Remove), and a built-in open-art catalog. Rapid
   left/right navigation debounces palette extraction and reuses recent palettes.
 - **Open wallpapers** — the wallpaper library bundled with Omarchy is the
   offline default. Unbranded community abstract, minimal, dark, space, and
@@ -49,8 +49,8 @@
 ## Requirements
 
 - Omarchy 4.0 (Quattro)
-- Aether with `--wallpaper-thumbs` support (optional; local browsing still works without it)
-- `curl`, `git`, `jq`, and GNU core utilities from a standard Omarchy install
+- Python 3, ImageMagick, `curl`, `git`, `jq`, and GNU core utilities from a
+  standard Omarchy install
 
 ## Install
 
@@ -113,11 +113,11 @@ Open from any picker footer Icons chip or `Ctrl+I`.
 
 Bare letter shortcuts stay off while filter typing is active.
 
-## Aether / open wallpapers
+## Built-in open wallpaper catalog
 
-Wallpaper browsing uses Aether's open wallpaper catalog:
+Wallpaper browsing uses the plugin's own bounded `wallpaper-catalog.py` helper;
+there is no Aether, paid service, account, or API-key dependency:
 
-- `aether --wallpaper-thumbs` / `aether --wallpaper-download`
 - The Omarchy-bundled collection is the local, curated default; OpenDesktop's
   broad Abstract catalog supplies optional community styles, with obvious GNOME-,
   KDE-, distro-, OS-, and logo-branded entries excluded
@@ -126,8 +126,9 @@ Wallpaper browsing uses Aether's open wallpaper catalog:
   CC-BY-SA metadata; packages and ambiguous licenses are excluded
 - Omarchy, Abstract, Minimal, Dark, Space, Neon, Photos, sort, and license filters
   map directly to provider queries or validated result metadata
-- The first local page is generated in a 24-item batch; thumbnails are cached
-  until their bundled source changes. Remote cached results are used during outages
+- The first page is generated in a 24-item batch with at most three concurrent
+  thumbnail fetches. Local thumbnails are reused until their bundled source changes;
+  remote queries are cached for six hours and stale results remain available during outages
 - Full downloads include `<image>.attribution.json` with source, author, and license
 
 ### Trademark and bundled assets
@@ -139,8 +140,9 @@ the bundled wallpaper collection; it reads the user's installed files locally,
 excludes logo-named variants, and copies only the wallpaper the user selects.
 Bundled image rights remain with their respective owners and upstream sources.
 
-Theme browsing continues if Aether is missing; only online wallpaper requests
-surface the Aether error. The catalog requires no API key or paid account.
+Theme browsing and the bundled Omarchy wallpaper collection stay available if a
+remote provider is offline. The optional community and photography collections
+require network access but no account or API key.
 
 ## Security and privacy
 
@@ -174,9 +176,10 @@ crossed and switches the action to **View source**. If GitHub declares the total
 the message includes the observed size and exact excess; otherwise downloading
 stops at the configured limit and the message says so explicitly.
 
-Wallpapers: only Aether and Omarchy picker helpers; capped streaming output;
-validated ids; previews from Aether's thumbnail cache; downloads from Aether's
-wallpaper directory.
+Wallpapers: only the bundled Python helper talks to strict OpenDesktop and
+Wikimedia host allowlists; responses and downloads are size-capped, ids and image
+signatures are validated, cache directories are owner-checked/no-follow, and
+publication uses atomic replacement. Downloads retain source/license attribution.
 
 Icon packs: only the `icons-browse.sh` helper talks to
 `api.gnome-look.org` OCS; downloads are size-capped, extracted with path-traversal

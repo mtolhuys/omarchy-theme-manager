@@ -7,7 +7,7 @@ Item {
   id: root
 
   property string homeDir: Quickshell.env("HOME")
-  property string commandPath: "aether"
+  property string commandPath: "wallpaper-catalog"
   property string cacheHome: Quickshell.env("XDG_CACHE_HOME") || (homeDir + "/.cache")
   property string dataHome: Quickshell.env("XDG_DATA_HOME") || (homeDir + "/.local/share")
   property int pagesPerRequest: 1
@@ -171,7 +171,7 @@ Item {
       const isCurrent = activeSerial === root.requestSerial
 
       if (isCurrent && outputTooLarge) {
-        root.errorMessage = "Aether returned too much wallpaper output"
+        root.errorMessage = "The wallpaper catalog returned too much output"
       } else if (isCurrent && exitCode === 0) {
         const result = WallpaperBrowserModel.parseSearchResponse(
           stdoutText,
@@ -194,7 +194,7 @@ Item {
         root.errorMessage = WallpaperBrowserModel.processError(
           stdoutText,
           stderrText,
-          "Wallpaper search failed. Update Aether to a version with open wallpaper browsing."
+          "Wallpaper search failed. Check the Theme Manager catalog helper."
         )
       }
 
@@ -245,7 +245,7 @@ Item {
       if (activeSerial !== root.downloadSerial) return
 
       if (outputTooLarge) {
-        root.errorMessage = "Aether returned too much download output"
+        root.errorMessage = "The wallpaper catalog returned too much download output"
       } else if (exitCode === 0) {
         const result = WallpaperBrowserModel.parseDownloadResponse(
           stdoutText,
@@ -258,7 +258,7 @@ Item {
         root.errorMessage = WallpaperBrowserModel.processError(
           stdoutText,
           stderrText,
-          "Aether could not download this wallpaper"
+          "The wallpaper catalog could not download this wallpaper"
         )
       }
 

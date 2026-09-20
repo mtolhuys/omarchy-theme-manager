@@ -41,7 +41,7 @@ if [[ -z $home || $home != /* ]]; then
   exit 1
 fi
 
-# Only allow wallpapers under the user's home (Aether cache or other local files).
+# Only allow wallpapers under the user's home (catalog downloads or other local files).
 case $src in
   "$home"/*) ;;
   *)

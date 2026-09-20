@@ -24,9 +24,17 @@ the release has been pushed.
 Maintainer notes (not required by form):
 
 - Category already Appearance; tag quickshell
-- Version 0.6.9 decodes Aether's structured Wallhaven errors from stdout, so
-  upstream HTTP 5xx responses, rate limits, and connectivity failures no longer
-  falsely claim that Aether 4.19+ is missing
+- Version 0.7.0 replaces Wallhaven/Aether with a bundled, stdlib-only Python
+  catalog helper backed by installed Omarchy art, explicitly licensed
+  OpenDesktop images, and Wikimedia Commons photography
+- No account, API key, paid service, or separately installed Aether binary is
+  required; the offline Omarchy collection remains the default
+- Remote requests use exact HTTPS host allowlists and size limits; responses are
+  cached for six hours, thumbnails are fetched three-wide, and stale search
+  results remain available during provider outages
+- Community downloads require a direct image, zero price, explicit CC0/CC-BY/
+  CC-BY-SA metadata, and pass image-signature validation before atomic storage
+- Obvious GNOME, KDE, distro, OS, Tux, and logo-branded entries are excluded
 - Addresses the resource-exhaustion blocker in issue #5344: no remote Git clone,
   pack fetch, or lazy blob download occurs
 - A 1 MiB-bounded Git smart-HTTP reference advertisement resolves one exact

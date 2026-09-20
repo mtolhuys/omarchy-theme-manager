@@ -180,10 +180,10 @@ const currentThemeBackgroundsDir = (home) => {
   return root + "/.local/state/omarchy/current/theme/backgrounds"
 }
 
-const aetherWallpapersDir = (home) => {
+const catalogWallpapersDir = (home) => {
   const root = homePath(home)
   if (!root) return ""
-  return root + "/.local/share/aether/wallpapers"
+  return root + "/.local/share/omarchy-theme-manager/wallpapers"
 }
 
 const isUnderDir = (path, dir) => {
@@ -197,7 +197,7 @@ const isPickerWallpaperPath = (path, home, themeName) =>
   isUnderDir(path, themeBackgroundsDir(home, themeName)) ||
   isUnderDir(path, currentThemeBackgroundsDir(home))
 
-const isAetherWallpaperPath = (path, home) => isUnderDir(path, aetherWallpapersDir(home))
+const isCatalogWallpaperPath = (path, home) => isUnderDir(path, catalogWallpapersDir(home))
 
 const installedWallpaperPath = (path, home, themeName) => {
   const target = safePath(path)
@@ -245,9 +245,9 @@ if (typeof module !== "undefined") {
     imageBasename,
     themeBackgroundsDir,
     currentThemeBackgroundsDir,
-    aetherWallpapersDir,
+    catalogWallpapersDir,
     isPickerWallpaperPath,
-    isAetherWallpaperPath,
+    isCatalogWallpaperPath,
     installedWallpaperPath,
     isUserInstalledWallpaper,
     needsWallpaperInstall

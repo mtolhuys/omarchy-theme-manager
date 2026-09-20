@@ -19,8 +19,8 @@
   Featured/Popular/Newest ordering, and open-license class.
 - Admit only direct image downloads carrying explicit CC0, CC-BY, or CC-BY-SA
   metadata; reject packages, paid files, ambiguous licensing, and untrusted hosts.
-- Use Aether's bounded provider client for search, three-wide thumbnail fetching,
-  cached outage fallback, full downloads, and attribution sidecars.
+- Bundle a bounded provider helper for search, three-wide thumbnail fetching,
+  six-hour result caching, outage fallback, full downloads, and attribution sidecars.
 
 ## 0.6.9 - 2026-09-19
 

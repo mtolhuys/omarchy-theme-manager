@@ -2,7 +2,7 @@
 
 # Networked marketing capture for Theme Manager README / marketplace banner.
 # Runs only in the disposable Omarchy plugin lab guest — never on the daily host.
-# Applies Matte Black, walks Themes · Catalog · Wallpapers · Icons · Wallhaven ·
+# Applies Matte Black, walks Themes · Catalog · Wallpapers · Icons · Open catalog ·
 # Actions, and keeps full-bleed console evidence for banner composition.
 
 omarchy_host_test() {
@@ -48,9 +48,7 @@ omarchy_host_test() {
          readlink -f \"\$HOME/.local/state/omarchy/current/theme\") == *matte-black* ]] || \
      hyprctl -j getoption general:col.active_border >/dev/null" || return 1
 
-  ssh_session "aether --version && \
-    aether --help | grep -q -- '--wallhaven-thumbs' && \
-    aether --help | grep -q -- '--wallhaven-download'" || return 1
+  ssh_session "python3 --version && magick -version" || return 1
 
   ssh_session "omarchy-plugin-add $install_source_q --enable --yes" \
     >"$RUN_DIR/theme-manager-marketing-install.log" || return 1
@@ -150,12 +148,12 @@ omarchy_host_test() {
     "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
        jq -e '.opened == true and .mode == \"wallpapers\"'" || return 1
 
-  # --- Wallhaven ---
-  ssh_session "rm -rf \"\$HOME/.cache/aether/wallhaven-thumbs\"" || return 1
+  # --- Open wallpaper catalog ---
+  ssh_session "rm -rf \"\$HOME/.cache/omarchy-theme-manager/wallpaper-thumbs\"" || return 1
   press ctrl-b || return 1
-  wait_for_guest_state "Ctrl+B enters Wallhaven via Aether" 55 ssh_session \
-    "test -d \"\$HOME/.cache/aether/wallhaven-thumbs\" && \
-     find \"\$HOME/.cache/aether/wallhaven-thumbs\" -maxdepth 1 -type f -print -quit | grep -q . && \
+  wait_for_guest_state "Ctrl+B enters the built-in open wallpaper catalog" 55 ssh_session \
+    "test -d \"\$HOME/.cache/omarchy-theme-manager/wallpaper-thumbs\" && \
+     find \"\$HOME/.cache/omarchy-theme-manager/wallpaper-thumbs\" -maxdepth 1 -type f -print -quit | grep -q . && \
      omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
        jq -e '.opened == true and .mode == \"wallhaven\" and .images > 0'" || return 1
   sleep 0.6
@@ -199,5 +197,5 @@ omarchy_host_test() {
   ssh_session "journalctl --user --since '@$start_epoch' --no-pager" \
     >"$RUN_DIR/theme-manager-marketing-journal.log" || true
 
-  printf 'ok - Matte Black marketing frames captured for Themes, Catalog, Wallpapers, Icons, Wallhaven\n'
+  printf 'ok - Matte Black marketing frames captured for Themes, Catalog, Wallpapers, Icons, Open catalog\n'
 }

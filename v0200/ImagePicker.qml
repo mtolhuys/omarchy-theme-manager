@@ -535,7 +535,7 @@ Item {
     const remembered = ThemeMemoryModel.rememberedWallpaper(themeMemoryState, themeName)
     if (!themeName || !remembered) return
 
-    // External/Aether path: copy into theme backgrounds when the source still exists.
+    // External catalog path: copy into theme backgrounds when the source still exists.
     if (ThemeMemoryModel.needsWallpaperInstall(remembered, homeDir, themeName)) {
       beginWallpaperInstall("ensure", remembered, "", "", 0)
       return
@@ -2324,7 +2324,7 @@ Item {
         root.cancel()
         return
       }
-      // ensure/migrate with a vanished Aether source must not keep stale memory.
+      // ensure/migrate with a vanished catalog source must not keep stale memory.
       if (purpose === "ensure" || purpose === "migrate" || purpose === "migrate-restore")
         root.pruneRememberedWallpaper(root.currentThemeName)
       if (purpose) root.showStatus("Wallpaper install failed")
@@ -2350,7 +2350,7 @@ Item {
 
   WallpaperBrowserController {
     id: wallhaven
-    commandPath: root.pluginScriptPath("aether-wallpapers.sh")
+    commandPath: root.pluginScriptPath("wallpaper-catalog.py")
     onResultsReady: function(rows, append) { root.acceptWallhavenResults(rows, append) }
     onWallpaperReady: function(path) {
       if (root.wallhavenMode) root.finishSelection(path)
@@ -2752,7 +2752,7 @@ Item {
               Image {
                 id: image
                 anchors.fill: parent
-                // Aether owns local Wallhaven thumbnails. Theme catalog and
+                // The plugin owns local wallpaper thumbnails. Theme catalog and
                 // Pling preview URLs have already passed model allowlists.
                 visible: !root.iconsMode || root.iconsBrowseMode
                 source: item.sourceActivated && item.thumbnailPath && (!root.iconsMode || root.iconsBrowseMode)
@@ -3282,7 +3282,7 @@ Item {
             return parent.width - width - offset
           }
           text: "Browse wallpapers"
-          tooltipText: "Browse free, openly licensed wallpapers through Aether (B / Ctrl+B)"
+          tooltipText: "Browse free, openly licensed wallpapers (B / Ctrl+B)"
           foreground: root.foreground
           accent: root.livePaletteAccent
           bordered: true
@@ -3659,11 +3659,11 @@ Item {
         anchors.horizontalCenter: carousel.horizontalCenter
         width: root.expandedWidth
         text: {
-          if (wallhaven.downloading) return "Downloading full wallpaper with Aether…"
+          if (wallhaven.downloading) return "Downloading full wallpaper…"
           if (wallhaven.errorMessage) return wallhaven.errorMessage
           if (wallhaven.loading && root.imageArray.length > 0)
-            return "Loading more with Aether…  " + root.imageArray.length + " loaded"
-          if (wallhaven.loading) return "Searching open wallpapers with Aether…"
+            return "Loading more wallpapers…  " + root.imageArray.length + " loaded"
+          if (wallhaven.loading) return "Searching open wallpapers…"
           if (wallhaven.staleResults) return root.imageArray.length + " cached results  ·  Catalog is offline"
           if (root.filterText)
             return "Search: " + root.filterText + "  ·  " + root.imageArray.length + " loaded"
@@ -3903,7 +3903,7 @@ Item {
         anchors.verticalCenterOffset: -24
         text: {
           if (wallhaven.errorMessage) return wallhaven.errorMessage
-          if (wallhaven.loading) return "Searching open wallpapers with Aether…"
+          if (wallhaven.loading) return "Searching open wallpapers…"
           return root.filterText
             ? "No open wallpapers found for “" + root.filterText + "”"
             : "No open wallpapers found"

@@ -5,7 +5,7 @@
   "version": "0.7.0",
   "author": "Maarten Tolhuijs",
   "license": "MIT",
-  "description": "Manage Omarchy themes, sticky per-theme wallpapers/icons, browse openly licensed desktop art through Aether, and install Pling/gnome-look.org icon themes from the native picker.",
+  "description": "Manage Omarchy themes, sticky per-theme wallpapers/icons, browse openly licensed desktop art, and install Pling/gnome-look.org icon themes from the native picker.",
   "kinds": ["overlay"],
   "keepLoaded": true,
   "entryPoints": {

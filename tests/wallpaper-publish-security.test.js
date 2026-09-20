@@ -21,8 +21,8 @@ const installer = join(process.cwd(), "install-wallpaper.sh")
 
 const createHarness = async () => {
   const home = await mkdtemp(join(tmpdir(), "theme-manager-wallpaper-"))
-  const cache = join(home, ".cache", "aether", "wallpapers")
-  const source = join(cache, "wallhaven-safe.png")
+  const cache = join(home, ".local", "share", "omarchy-theme-manager", "wallpapers")
+  const source = join(cache, "ocs-safe.png")
   await mkdir(cache, { recursive: true, mode: 0o700 })
   await writeFile(source, Buffer.alloc(5000, 0x42))
   return {
@@ -45,7 +45,7 @@ test("publishes wallpapers through an owner-checked no-follow directory", async 
     const installed = result.stdout.trim()
     assert.equal(
       installed,
-      join(harness.home, ".config", "omarchy", "backgrounds", "tokyo-night", "wallhaven-safe.png")
+      join(harness.home, ".config", "omarchy", "backgrounds", "tokyo-night", "ocs-safe.png")
     )
     assert.deepEqual(await readFile(installed), await readFile(harness.source))
     assert.equal((await lstat(installed)).isSymbolicLink(), false)
@@ -59,7 +59,7 @@ test("a planted destination symlink cannot redirect an overwrite", async () => {
   try {
     const themeDirectory = join(harness.home, ".config", "omarchy", "backgrounds", "tokyo-night")
     const victim = join(harness.home, "victim.txt")
-    const planted = join(themeDirectory, "wallhaven-safe.png")
+    const planted = join(themeDirectory, "ocs-safe.png")
     await mkdir(themeDirectory, { recursive: true, mode: 0o700 })
     await writeFile(victim, "do not overwrite")
     await symlink(victim, planted)
@@ -68,7 +68,7 @@ test("a planted destination symlink cannot redirect an overwrite", async () => {
     assert.equal(result.status, 0, result.stderr)
     assert.equal(await readFile(victim, "utf8"), "do not overwrite")
     assert.equal(await readlink(planted), victim)
-    assert.equal(result.stdout.trim().endsWith("/wallhaven-safe-2.png"), true)
+    assert.equal(result.stdout.trim().endsWith("/ocs-safe-2.png"), true)
     assert.equal((await lstat(result.stdout.trim())).isFile(), true)
   } finally {
     await harness.cleanup()
