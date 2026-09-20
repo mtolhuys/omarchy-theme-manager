@@ -9,23 +9,21 @@ Item {
   id: root
 
   property bool opened: false
-  property string draftCategories: "111"
-  property string draftSorting: "date_added"
-  property string draftOrder: "desc"
-  property string draftAtLeast: "1920x1080"
-  property string draftColors: ""
+  property string draftCollection: "omarchy"
+  property string draftSorting: "featured"
+  property string draftLicense: "any"
   property color background: Color.background
   property color foreground: Color.foreground
   property color scrim: Util.alpha(Color.background, 0.82)
   property color accent: Color.accent
   property int cursorSection: 0
-  property int categoryCursor: 0
+  property int collectionCursor: 0
   property int sortingCursor: 0
-  property int resolutionCursor: 1
-  property int colorCursor: 0
+  property int licenseCursor: 0
+  readonly property var collectionOptions: WallpaperBrowserModel.getCollectionOptions()
   readonly property var sortingOptions: WallpaperBrowserModel.getSortingOptions()
-  readonly property var resolutionOptions: WallpaperBrowserModel.getResolutionOptions()
-  readonly property var colorOptions: WallpaperBrowserModel.getColorOptions()
+  readonly property var licenseOptions: WallpaperBrowserModel.getLicenseOptions()
+  readonly property bool communityOptionsVisible: draftCollection !== "omarchy"
 
   signal canceled()
   signal applied(var filters)
@@ -43,43 +41,32 @@ Item {
 
   function draftFilters() {
     return WallpaperBrowserModel.normalizeFilters({
-      categories: draftCategories,
+      collection: draftCollection,
       sorting: draftSorting,
-      order: draftOrder,
-      atLeast: draftAtLeast,
-      colors: draftColors
+      license: draftLicense
     })
   }
 
   function openWith(filters) {
     const normalized = WallpaperBrowserModel.normalizeFilters(filters)
-    draftCategories = normalized.categories
+    draftCollection = normalized.collection
     draftSorting = normalized.sorting
-    draftOrder = normalized.order
-    draftAtLeast = normalized.atLeast
-    draftColors = normalized.colors
+    draftLicense = normalized.license
     cursorSection = 0
-    categoryCursor = 0
+    collectionCursor = optionIndex(collectionOptions, draftCollection, 0)
     sortingCursor = optionIndex(sortingOptions, draftSorting, 0)
-    resolutionCursor = optionIndex(resolutionOptions, draftAtLeast, 1)
-    colorCursor = optionIndex(colorOptions, draftColors, 0)
+    licenseCursor = optionIndex(licenseOptions, draftLicense, 0)
     opened = true
   }
 
   function resetDraft() {
-    draftCategories = "111"
-    draftSorting = "date_added"
-    draftOrder = "desc"
-    draftAtLeast = "1920x1080"
-    draftColors = ""
-    categoryCursor = 0
+    const defaults = WallpaperBrowserModel.defaultFilters()
+    draftCollection = defaults.collection
+    draftSorting = defaults.sorting
+    draftLicense = defaults.license
+    collectionCursor = 0
     sortingCursor = 0
-    resolutionCursor = 1
-    colorCursor = 0
-  }
-
-  function toggleCategory(index) {
-    draftCategories = WallpaperBrowserModel.toggleCategory(draftCategories, index)
+    licenseCursor = 0
   }
 
   function cancel() {
@@ -95,7 +82,6 @@ Item {
 
   function handleKey(event) {
     if (!opened) return false
-
     if (event.key === Qt.Key_Escape) {
       cancel()
     } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
@@ -103,31 +89,25 @@ Item {
     } else if (event.key === Qt.Key_Backspace) {
       resetDraft()
     } else if (event.key === Qt.Key_Up || event.key === Qt.Key_Backtab) {
-      cursorSection = wrap(cursorSection - 1, 4)
+      cursorSection = communityOptionsVisible ? wrap(cursorSection - 1, 3) : 0
     } else if (event.key === Qt.Key_Down || event.key === Qt.Key_Tab) {
-      cursorSection = wrap(cursorSection + 1, 4)
-    } else if (event.key === Qt.Key_D && cursorSection === 1) {
-      draftOrder = draftOrder === "desc" ? "asc" : "desc"
-    } else if (event.key === Qt.Key_Space && cursorSection === 0) {
-      toggleCategory(categoryCursor)
+      cursorSection = communityOptionsVisible ? wrap(cursorSection + 1, 3) : 0
     } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
       const direction = event.key === Qt.Key_Left ? -1 : 1
       if (cursorSection === 0) {
-        categoryCursor = wrap(categoryCursor + direction, 3)
+        collectionCursor = wrap(collectionCursor + direction, collectionOptions.length)
+        draftCollection = collectionOptions[collectionCursor].value
+        if (!communityOptionsVisible) cursorSection = 0
       } else if (cursorSection === 1) {
         sortingCursor = wrap(sortingCursor + direction, sortingOptions.length)
         draftSorting = sortingOptions[sortingCursor].value
       } else if (cursorSection === 2) {
-        resolutionCursor = wrap(resolutionCursor + direction, resolutionOptions.length)
-        draftAtLeast = resolutionOptions[resolutionCursor].value
-      } else {
-        colorCursor = wrap(colorCursor + direction, colorOptions.length)
-        draftColors = colorOptions[colorCursor].value
+        licenseCursor = wrap(licenseCursor + direction, licenseOptions.length)
+        draftLicense = licenseOptions[licenseCursor].value
       }
     } else {
       return false
     }
-
     return true
   }
 
@@ -137,18 +117,13 @@ Item {
   Rectangle {
     anchors.fill: parent
     color: root.scrim
-
-    MouseArea {
-      anchors.fill: parent
-      onClicked: root.cancel()
-    }
+    MouseArea { anchors.fill: parent; onClicked: root.cancel() }
   }
 
   BorderSurface {
     id: card
-
-    width: Math.min(parent.width - Style.space(48), Style.space(860))
-    height: Style.space(430)
+    width: Math.min(parent.width - Style.space(48), Style.space(900))
+    height: Style.space(root.communityOptionsVisible ? 370 : 270)
     anchors.centerIn: parent
     color: root.background
     borderSpec: Border.flat(root.accent, Style.normalBorderWidth)
@@ -168,40 +143,38 @@ Item {
       Item {
         width: parent.width
         height: Style.space(48)
-
         Text {
           anchors.left: parent.left
           anchors.top: parent.top
-          text: "Filter Wallhaven"
+          text: "Filter open wallpapers"
           color: root.foreground
           font.pixelSize: Style.font.heading
           font.weight: Font.DemiBold
           textFormat: Text.PlainText
         }
-
         Text {
           anchors.left: parent.left
           anchors.bottom: parent.bottom
-          text: "Stage your choices, then make one Aether request"
+          text: root.communityOptionsVisible
+            ? "Unbranded open community art · photography kept separate"
+            : "Bundled Omarchy wallpapers · local, cached, no re-download"
           color: root.foreground
           opacity: 0.64
           font.pixelSize: Style.font.bodySmall
           textFormat: Text.PlainText
         }
-
         BorderSurface {
           anchors.right: parent.right
           anchors.top: parent.top
-          width: sfwText.implicitWidth + Style.space(18)
+          width: sourceText.implicitWidth + Style.space(18)
           height: Style.space(28)
           color: Util.alpha(root.accent, 0.12)
           borderSpec: Border.flat(Util.alpha(root.accent, 0.8), Style.normalBorderWidth)
           radius: Style.cornerRadius
-
           Text {
-            id: sfwText
+            id: sourceText
             anchors.centerIn: parent
-            text: "SFW only"
+            text: "No API key"
             color: root.accent
             font.pixelSize: Style.font.bodySmall
             font.weight: Font.DemiBold
@@ -213,44 +186,40 @@ Item {
       Item {
         width: parent.width
         height: Style.space(38)
-
         Text {
           width: Style.space(108)
           anchors.left: parent.left
           anchors.verticalCenter: parent.verticalCenter
-          text: "Categories"
+          text: "Collection"
           color: root.cursorSection === 0 ? root.accent : root.foreground
           opacity: root.cursorSection === 0 ? 1 : 0.72
           font.pixelSize: Style.font.body
           font.weight: root.cursorSection === 0 ? Font.DemiBold : Font.Normal
           textFormat: Text.PlainText
         }
-
         Row {
           anchors.left: parent.left
           anchors.leftMargin: Style.space(118)
           anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(8)
-
+          spacing: Style.space(6)
           Repeater {
-            model: ["General", "Anime", "People"]
-
+            model: root.collectionOptions
             Button {
               required property int index
-              required property string modelData
-
-              text: modelData
-              selected: root.draftCategories.charAt(index) === "1"
-              hasCursor: root.cursorSection === 0 && root.categoryCursor === index
+              required property var modelData
+              text: modelData.label
+              selected: root.draftCollection === modelData.value
+              hasCursor: root.cursorSection === 0 && root.collectionCursor === index
               foreground: root.foreground
               accent: root.accent
               bordered: true
-              horizontalPadding: Style.space(12)
+              fontSize: Style.font.bodySmall
+              horizontalPadding: Style.space(8)
               verticalPadding: Style.space(6)
               onClicked: {
                 root.cursorSection = 0
-                root.categoryCursor = index
-                root.toggleCategory(index)
+                root.collectionCursor = index
+                root.draftCollection = modelData.value
               }
             }
           }
@@ -259,8 +228,8 @@ Item {
 
       Item {
         width: parent.width
-        height: Style.space(38)
-
+        visible: root.communityOptionsVisible
+        height: visible ? Style.space(38) : 0
         Text {
           width: Style.space(108)
           anchors.left: parent.left
@@ -272,28 +241,23 @@ Item {
           font.weight: root.cursorSection === 1 ? Font.DemiBold : Font.Normal
           textFormat: Text.PlainText
         }
-
         Row {
           anchors.left: parent.left
           anchors.leftMargin: Style.space(118)
           anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(6)
-
+          spacing: Style.space(8)
           Repeater {
             model: root.sortingOptions
-
             Button {
               required property int index
               required property var modelData
-
               text: modelData.label
               selected: root.draftSorting === modelData.value
               hasCursor: root.cursorSection === 1 && root.sortingCursor === index
               foreground: root.foreground
               accent: root.accent
               bordered: true
-              fontSize: Style.font.bodySmall
-              horizontalPadding: Style.space(8)
+              horizontalPadding: Style.space(10)
               verticalPadding: Style.space(6)
               onClicked: {
                 root.cursorSection = 1
@@ -302,184 +266,70 @@ Item {
               }
             }
           }
-
-          Button {
-            text: root.draftOrder === "desc" ? "↓" : "↑"
-            tooltipText: root.draftOrder === "desc" ? "Descending (D)" : "Ascending (D)"
-            foreground: root.foreground
-            accent: root.accent
-            bordered: true
-            fontSize: Style.font.body
-            horizontalPadding: Style.space(8)
-            verticalPadding: Style.space(5)
-            onClicked: {
-              root.cursorSection = 1
-              root.draftOrder = root.draftOrder === "desc" ? "asc" : "desc"
-            }
-          }
         }
       }
 
       Item {
         width: parent.width
-        height: Style.space(38)
-
+        visible: root.communityOptionsVisible
+        height: visible ? Style.space(38) : 0
         Text {
           width: Style.space(108)
           anchors.left: parent.left
           anchors.verticalCenter: parent.verticalCenter
-          text: "Minimum size"
+          text: "License"
           color: root.cursorSection === 2 ? root.accent : root.foreground
           opacity: root.cursorSection === 2 ? 1 : 0.72
           font.pixelSize: Style.font.body
           font.weight: root.cursorSection === 2 ? Font.DemiBold : Font.Normal
           textFormat: Text.PlainText
         }
-
         Row {
           anchors.left: parent.left
           anchors.leftMargin: Style.space(118)
           anchors.verticalCenter: parent.verticalCenter
-          spacing: Style.space(8)
-
+          spacing: Style.space(6)
           Repeater {
-            model: root.resolutionOptions
-
+            model: root.licenseOptions
             Button {
               required property int index
               required property var modelData
-
               text: modelData.label
-              selected: root.draftAtLeast === modelData.value
-              hasCursor: root.cursorSection === 2 && root.resolutionCursor === index
+              selected: root.draftLicense === modelData.value
+              hasCursor: root.cursorSection === 2 && root.licenseCursor === index
               foreground: root.foreground
               accent: root.accent
               bordered: true
-              horizontalPadding: Style.space(10)
+              fontSize: Style.font.bodySmall
+              horizontalPadding: Style.space(8)
               verticalPadding: Style.space(6)
               onClicked: {
                 root.cursorSection = 2
-                root.resolutionCursor = index
-                root.draftAtLeast = modelData.value
+                root.licenseCursor = index
+                root.draftLicense = modelData.value
               }
             }
           }
-        }
-      }
-
-      Item {
-        width: parent.width
-        height: Style.space(52)
-
-        Text {
-          width: Style.space(108)
-          anchors.left: parent.left
-          anchors.verticalCenter: parent.verticalCenter
-          text: "Palette color"
-          color: root.cursorSection === 3 ? root.accent : root.foreground
-          opacity: root.cursorSection === 3 ? 1 : 0.72
-          font.pixelSize: Style.font.body
-          font.weight: root.cursorSection === 3 ? Font.DemiBold : Font.Normal
-          textFormat: Text.PlainText
-        }
-
-        Row {
-          anchors.left: parent.left
-          anchors.leftMargin: Style.space(118)
-          anchors.top: parent.top
-          spacing: Style.space(7)
-
-          Repeater {
-            model: root.colorOptions
-
-            BorderSurface {
-              id: swatch
-
-              required property int index
-              required property var modelData
-
-              readonly property bool selected: root.draftColors === modelData.value
-              readonly property bool hasCursor: root.cursorSection === 3 && root.colorCursor === index
-              width: index === 0 ? Style.space(54) : Style.space(34)
-              height: Style.space(30)
-              color: index === 0 ? "transparent" : ("#" + modelData.value)
-              borderSpec: Border.flat(
-                hasCursor ? root.foreground : (selected ? root.accent : Util.alpha(root.foreground, 0.38)),
-                hasCursor || selected ? Style.focusBorderWidth : Style.normalBorderWidth)
-              radius: Style.cornerRadius
-
-              Text {
-                anchors.centerIn: parent
-                text: swatch.index === 0 ? "Any" : (swatch.selected ? "✓" : "")
-                color: swatch.index === 0
-                  ? root.foreground
-                  : (["ffcc33", "cccccc", "ffffff"].includes(swatch.modelData.value) ? "#111111" : "#ffffff")
-                font.pixelSize: Style.font.bodySmall
-                font.weight: Font.DemiBold
-                textFormat: Text.PlainText
-              }
-
-              MouseArea {
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onEntered: {
-                  root.cursorSection = 3
-                  root.colorCursor = swatch.index
-                }
-                onClicked: {
-                  root.cursorSection = 3
-                  root.colorCursor = swatch.index
-                  root.draftColors = swatch.modelData.value
-                }
-              }
-            }
-          }
-
-          Text {
-            anchors.verticalCenter: parent.verticalCenter
-            width: Style.space(64)
-            text: root.colorOptions[root.colorCursor].label
-            color: root.foreground
-            opacity: 0.72
-            font.pixelSize: Style.font.bodySmall
-            elide: Text.ElideRight
-            textFormat: Text.PlainText
-          }
-        }
-
-        Text {
-          anchors.left: parent.left
-          anchors.leftMargin: Style.space(118)
-          anchors.bottom: parent.bottom
-          text: "Wallhaven palette tag; selected color need not dominate"
-          color: root.foreground
-          opacity: 0.56
-          font.pixelSize: Style.font.caption
-          textFormat: Text.PlainText
         }
       }
 
       Item {
         width: parent.width
         height: Style.space(72)
-
         Text {
           anchors.left: parent.left
           anchors.bottom: parent.bottom
           anchors.bottomMargin: Style.space(6)
-          text: "↑↓ section  ·  ←→ choice  ·  Space toggle  ·  D direction  ·  Enter apply"
+          text: "↑↓ section  ·  ←→ choice  ·  Backspace reset  ·  Enter apply"
           color: root.foreground
           opacity: 0.58
           font.pixelSize: Style.font.caption
           textFormat: Text.PlainText
         }
-
         Row {
           anchors.right: parent.right
           anchors.bottom: parent.bottom
           spacing: Style.space(8)
-
           Button {
             text: "Reset"
             foreground: root.foreground
@@ -489,7 +339,6 @@ Item {
             verticalPadding: Style.space(7)
             onClicked: root.resetDraft()
           }
-
           Button {
             text: "Cancel"
             foreground: root.foreground
@@ -499,7 +348,6 @@ Item {
             verticalPadding: Style.space(7)
             onClicked: root.cancel()
           }
-
           Button {
             text: "Apply filters"
             selected: true

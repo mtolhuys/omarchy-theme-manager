@@ -9,7 +9,7 @@ const read = (path) => readFile(join(process.cwd(), path), "utf8")
 test("keeps the published Theme Manager identity as the sole picker clone", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   assert.equal(manifest.id, "io.github.mtolhuys.theme-manager")
-  assert.equal(manifest.version, "0.6.9")
+  assert.equal(manifest.version, "0.7.0")
   assert.deepEqual(manifest.kinds, ["overlay"])
   assert.match(manifest.entryPoints.overlay, /^v[0-9]{4}\/ImagePicker\.qml$/)
   assert.equal(manifest.omarchy.clonedFrom, "omarchy.image-picker")
@@ -97,6 +97,7 @@ test("resolves bundled helpers without private host manifest fields", async () =
     "catalog.sh",
     "icons-browse.sh",
     "icons-inventory.sh",
+    "aether-wallpapers.sh",
     "install-theme.py",
     "install-wallpaper.sh",
     "remove-wallpaper.sh",
@@ -153,7 +154,7 @@ test("routes theme and wallpaper features by request context", async () => {
   assert.match(picker, /function openIcons\(\)/)
   assert.match(picker, /theme-manager-memory\.json/)
   assert.match(picker, /theme-catalog-filters\.json/)
-  assert.match(picker, /wallhaven-filters\.json/)
+  assert.match(picker, /wallpaper-browser-filters\.json/)
   assert.match(picker, /persistWallhavenFilters/)
   assert.match(picker, /catalogStickyQuery/)
   assert.match(picker, /refreshCatalogRows/)
@@ -170,7 +171,7 @@ test("publishes catalog cache entries through a checked directory descriptor", a
   assert.match(cache, /dst_dir_fd=cache_fd/)
 })
 
-test("delegates SFW Wallhaven traffic exclusively to bounded Aether processes", async () => {
+test("delegates open wallpaper traffic exclusively to bounded Aether processes", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   const runtimeDir = dirname(manifest.entryPoints.overlay)
   const sources = await Promise.all(
@@ -184,12 +185,20 @@ test("delegates SFW Wallhaven traffic exclusively to bounded Aether processes", 
   )
   const [picker, controller, model, filterBar, filterSheet] = sources
 
-  assert.match(model, /"--wallhaven-thumbs"/)
-  assert.match(model, /"--wallhaven-download"/)
-  assert.match(model, /"--purity",\s*"100"/)
+  const launcher = await read("aether-wallpapers.sh")
+
+  assert.match(model, /"--wallpaper-thumbs"/)
+  assert.match(model, /"--wallpaper-download"/)
+  assert.match(model, /"--collection"/)
+  assert.match(model, /"--license"/)
   assert.match(controller, /maxSearchOutputBytes:\s*4 \* 1024 \* 1024/)
+  assert.match(controller, /pagesPerRequest:\s*1/)
   assert.match(controller, /maxDownloadOutputBytes:\s*8 \* 1024/)
   assert.match(controller, /maxErrorOutputBytes:\s*64 \* 1024/)
+  assert.match(controller, /command\[0\] = root\.commandPath/)
+  assert.match(picker, /commandPath: root\.pluginScriptPath\("aether-wallpapers\.sh"\)/)
+  assert.match(launcher, /\.local\/bin\/aether/)
+  assert.match(launcher, /exec aether "\$@"/)
   assert.equal(
     (controller.match(/WallpaperBrowserModel\.processError\(\s*stdoutText,/g) || []).length,
     2
@@ -197,9 +206,12 @@ test("delegates SFW Wallhaven traffic exclusively to bounded Aether processes", 
   assert.equal((controller.match(/onDataChanged:/g) || []).length, 4)
   assert.equal((controller.match(/\.signal\(9\)/g) || []).length, 4)
   assert.match(filterBar, /Filters/)
-  assert.match(filterSheet, /selected color need not dominate/)
+  assert.match(filterSheet, /Bundled Omarchy wallpapers/)
+  assert.match(filterSheet, /getCollectionOptions/)
+  assert.match(filterSheet, /getLicenseOptions/)
   assert.match(picker, /filterSheet\.openWith/)
   assert.doesNotMatch(sources.join("\n"), /wallhaven\.cc\/api/)
+  assert.doesNotMatch(sources.join("\n"), /--colors|--purity/)
   assert.doesNotMatch(sources.join("\n"), /\bcurl\b/)
 })
 

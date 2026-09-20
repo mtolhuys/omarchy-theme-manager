@@ -7,14 +7,13 @@ Item {
   id: root
 
   property string homeDir: Quickshell.env("HOME")
+  property string commandPath: "aether"
   property string cacheHome: Quickshell.env("XDG_CACHE_HOME") || (homeDir + "/.cache")
   property string dataHome: Quickshell.env("XDG_DATA_HOME") || (homeDir + "/.local/share")
-  property int pagesPerRequest: 2
-  property string categories: "111"
-  property string sorting: "date_added"
-  property string order: "desc"
-  property string atLeast: "1920x1080"
-  property string colors: ""
+  property int pagesPerRequest: 1
+  property string collection: "omarchy"
+  property string sorting: "featured"
+  property string license: "any"
   property int requestSerial: 0
   property int downloadSerial: 0
   readonly property int maxSearchOutputBytes: 4 * 1024 * 1024
@@ -27,6 +26,7 @@ Item {
   property int currentPage: 0
   property int lastPage: 0
   property int totalResults: 0
+  property bool staleResults: false
   property string errorMessage: ""
   property bool downloading: downloadProc.running
   readonly property bool loading: searchProc.running || queuedRequest !== null
@@ -46,17 +46,16 @@ Item {
     currentPage = 0
     lastPage = 0
     totalResults = 0
+    staleResults = false
     errorMessage = ""
   }
 
   function search(query, append) {
     const normalizedQuery = WallpaperBrowserModel.normalizeQuery(query)
     const filters = WallpaperBrowserModel.normalizeFilters({
-      categories: categories,
+      collection: collection,
       sorting: sorting,
-      order: order,
-      atLeast: atLeast,
-      colors: colors
+      license: license
     })
     const nextFilterKey = WallpaperBrowserModel.filterKey(filters)
     if (append && (loading
@@ -90,12 +89,14 @@ Item {
     searchProc.outputTooLarge = false
     searchProc.stdoutText = ""
     searchProc.stderrText = ""
-    searchProc.command = WallpaperBrowserModel.searchArguments(
+    const command = WallpaperBrowserModel.searchArguments(
       request.query,
       request.page,
       pagesPerRequest,
       request.filters
     )
+    command[0] = root.commandPath
+    searchProc.command = command
     searchProc.running = true
   }
 
@@ -108,7 +109,7 @@ Item {
 
     const command = WallpaperBrowserModel.downloadArguments(id)
     if (command.length === 0) {
-      errorMessage = "The selected Wallhaven wallpaper has an invalid id"
+      errorMessage = "The selected wallpaper has an invalid id"
       focusRequested()
       return
     }
@@ -119,6 +120,7 @@ Item {
     downloadProc.outputTooLarge = false
     downloadProc.stdoutText = ""
     downloadProc.stderrText = ""
+    command[0] = root.commandPath
     downloadProc.command = command
     downloadProc.running = true
   }
@@ -169,7 +171,7 @@ Item {
       const isCurrent = activeSerial === root.requestSerial
 
       if (isCurrent && outputTooLarge) {
-        root.errorMessage = "Aether returned too much Wallhaven output"
+        root.errorMessage = "Aether returned too much wallpaper output"
       } else if (isCurrent && exitCode === 0) {
         const result = WallpaperBrowserModel.parseSearchResponse(
           stdoutText,
@@ -183,6 +185,7 @@ Item {
           root.currentPage = result.meta.currentPage
           root.lastPage = result.meta.lastPage
           root.totalResults = result.meta.total
+          root.staleResults = result.meta.stale === true
           root.nextRawPage = activePage + root.pagesPerRequest
           root.errorMessage = ""
           root.resultsReady(result.rows, activeAppend)
@@ -191,7 +194,7 @@ Item {
         root.errorMessage = WallpaperBrowserModel.processError(
           stdoutText,
           stderrText,
-          "Wallhaven search failed. Aether 4.19 or newer is required."
+          "Wallpaper search failed. Update Aether to a version with open wallpaper browsing."
         )
       }
 

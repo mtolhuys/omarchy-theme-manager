@@ -3,18 +3,18 @@
 [![Built for Omarchy: Plugin](https://raw.githubusercontent.com/tcballard/omarchy-badges/75975e5b5bf75e7ede3764bcd2950046f7abfe2c/badges/v1/omarchy-plugin.svg)](https://plugins.omarchy.org/plugin.html?id=io.github.mtolhuys.theme-manager)
 
 <p align="center">
-  <img src="assets/banner.png" alt="Omarchy Theme Manager — Themes, Wallpapers, and Wallhaven on Matte Black" width="100%" />
+  <img src="assets/banner.png" alt="Omarchy Theme Manager — Themes, Wallpapers, and Icons on Matte Black" width="100%" />
 </p>
 
 <p align="center">
   <picture>
     <source srcset="assets/banner.webp" type="image/webp" />
-    <img src="assets/banner.gif" alt="Omarchy Theme Manager walkthrough — Themes, Catalog, Wallpapers, Icons, Wallhaven" width="100%" />
+    <img src="assets/banner.gif" alt="Omarchy Theme Manager walkthrough — Themes, Catalog, Wallpapers, Icons" width="100%" />
   </picture>
 </p>
 
 <p align="center">
-  Themes, sticky wallpapers/icons, Wallhaven, and Pling icon browsing inside
+  Themes, sticky wallpapers/icons, open wallpaper browsing, and Pling icons inside
   Omarchy's native full-screen picker — one replacement for
   <code>omarchy.image-picker</code>.
 </p>
@@ -37,16 +37,19 @@
   Omarchy badge. Rendering stays bounded to a small reusable delegate pool even
   when the catalog reaches its 2,000-record input ceiling.
 - **Wallpaper picker** — favorites (`Ctrl+D`), live palette while browsing,
-  Actions hamburger (Save / All / Reset / Remove), Wallhaven via Aether. Rapid
+  Actions hamburger (Save / All / Reset / Remove), open art via Aether. Rapid
   left/right navigation debounces palette extraction and reuses recent palettes.
-- **Wallhaven** — SFW search, sticky filters + last query in
-  `~/.config/omarchy/wallhaven-filters.json`, load-more; downloads install into the
-  theme backgrounds folder so they appear in the local carousel.
+- **Open wallpapers** — the wallpaper library bundled with Omarchy is the
+  offline default. Unbranded community abstract, minimal, dark, space, and
+  neon art plus Commons photography remain optional. Community sort and license
+  filters map to provider queries or validated metadata. The last query and
+  filters persist in `~/.config/omarchy/wallpaper-browser-filters.json`;
+  downloaded images keep an attribution sidecar and appear in the local carousel.
 
 ## Requirements
 
 - Omarchy 4.0 (Quattro)
-- Aether 4.19+ for Wallhaven (optional; theme/wallpaper picker works without it)
+- Aether with `--wallpaper-thumbs` support (optional; local browsing still works without it)
 - `curl`, `git`, `jq`, and GNU core utilities from a standard Omarchy install
 
 ## Install
@@ -79,10 +82,10 @@ Open the Omarchy theme switcher (`Super+Shift+Ctrl+Space`).
 
 Open the background switcher (`Super+Ctrl+Space`).
 
-- Footer: Actions (☰) + **Themes** on the left; **Browse Wallhaven** + Icons on
+- Footer: Actions (☰) + **Themes** on the left; **Browse wallpapers** + Icons on
   the right.
 - Local favorites, live palette, Remove/Reset for user backgrounds.
-- Wallhaven: type to search, **Filters** / `Ctrl+F`, **Load more** / `Ctrl+N`.
+- Open wallpapers: type to search, **Filters** / `Ctrl+F`, **Load more** / `Ctrl+N`.
 
 ### Icons mode
 
@@ -94,32 +97,50 @@ Open from any picker footer Icons chip or `Ctrl+I`.
 
 ### Keyboard shortcuts
 
-| Shortcut       | Action                                 |
-| -------------- | -------------------------------------- |
-| `Ctrl+T` / `T` | Themes (bare `T` when search inactive) |
-| `Ctrl+W` / `W` | Wallpapers / leave Wallhaven           |
-| `B` / `Ctrl+B` | Browse (themes, Wallhaven, or icons)   |
-| `M`            | Actions menu (local wallpapers)        |
-| `Ctrl+I`       | Icons mode                             |
-| `Ctrl+F`       | Filters (catalog, Wallhaven, or icons) |
-| `Ctrl+D`       | Toggle wallpaper favorite              |
-| `Ctrl+Shift+D` | Favorites-only filter                  |
-| `Ctrl+N`       | Load more (Wallhaven / Browse icons)   |
-| `Delete`       | Uninstall theme (theme picker)         |
-| `Escape`       | Clear search / back / close            |
+| Shortcut       | Action                                  |
+| -------------- | --------------------------------------- |
+| `Ctrl+T` / `T` | Themes (bare `T` when search inactive)  |
+| `Ctrl+W` / `W` | Wallpapers / leave online browsing      |
+| `B` / `Ctrl+B` | Browse (themes, wallpapers, or icons)   |
+| `M`            | Actions menu (local wallpapers)         |
+| `Ctrl+I`       | Icons mode                              |
+| `Ctrl+F`       | Filters (catalog, wallpapers, or icons) |
+| `Ctrl+D`       | Toggle wallpaper favorite               |
+| `Ctrl+Shift+D` | Favorites-only filter                   |
+| `Ctrl+N`       | Load more (wallpapers / Browse icons)   |
+| `Delete`       | Uninstall theme (theme picker)          |
+| `Escape`       | Clear search / back / close             |
 
 Bare letter shortcuts stay off while filter typing is active.
 
-## Aether / Wallhaven
+## Aether / open wallpapers
 
-Wallhaven uses Aether instead of a second network client:
+Wallpaper browsing uses Aether's open wallpaper catalog:
 
-- `aether --wallhaven-thumbs` / `aether --wallhaven-download`
-- Defaults match Aether: all categories, newest first, 1920x1080+, two pages
-- Color filters use Wallhaven palette metadata (not brightness heuristics)
+- `aether --wallpaper-thumbs` / `aether --wallpaper-download`
+- The Omarchy-bundled collection is the local, curated default; OpenDesktop's
+  broad Abstract catalog supplies optional community styles, with obvious GNOME-,
+  KDE-, distro-, OS-, and logo-branded entries excluded
+- Commons photography is kept as a separate optional collection
+- Community entries require a free direct image and explicit CC0, CC-BY, or
+  CC-BY-SA metadata; packages and ambiguous licenses are excluded
+- Omarchy, Abstract, Minimal, Dark, Space, Neon, Photos, sort, and license filters
+  map directly to provider queries or validated result metadata
+- The first local page is generated in a 24-item batch; thumbnails are cached
+  until their bundled source changes. Remote cached results are used during outages
+- Full downloads include `<image>.attribution.json` with source, author, and license
 
-Theme browsing continues if Aether is missing; only Wallhaven requests surface
-the Aether error. No Wallhaven API key is required for public SFW search.
+### Trademark and bundled assets
+
+This is an independent community plugin and is not affiliated with or endorsed
+by the Omarchy project or the Omarchy Foundation. Omarchy is used here only to
+describe compatibility. The plugin does not ship an Omarchy logo or redistribute
+the bundled wallpaper collection; it reads the user's installed files locally,
+excludes logo-named variants, and copies only the wallpaper the user selects.
+Bundled image rights remain with their respective owners and upstream sources.
+
+Theme browsing continues if Aether is missing; only online wallpaper requests
+surface the Aether error. The catalog requires no API key or paid account.
 
 ## Security and privacy
 

@@ -19,7 +19,7 @@ import "IconBrowseModel.js" as IconBrowseModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.6.9"
+  readonly property string buildIdentity: "0.7.0"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var manifest: null
@@ -54,7 +54,7 @@ Item {
   property bool wallhavenMode: false
   property string wallhavenStickyQuery: ""
   property bool wallhavenFiltersReady: false
-  readonly property string wallhavenFiltersPath: Quickshell.env("HOME") + "/.config/omarchy/wallhaven-filters.json"
+  readonly property string wallhavenFiltersPath: Quickshell.env("HOME") + "/.config/omarchy/wallpaper-browser-filters.json"
   property var localImages: []
   property int localSelectedIndex: 0
   property string localFilterText: ""
@@ -157,28 +157,22 @@ Item {
   readonly property bool currentFavorite: localWallpaperMode
     && WallpaperCommandModel.isFavorite(favoriteIds, currentPath(), wallpaperFavoriteContext())
   readonly property string wallhavenFilterSummary: WallpaperBrowserModel.filterSummary({
-    categories: wallhaven.categories,
+    collection: wallhaven.collection,
     sorting: wallhaven.sorting,
-    order: wallhaven.order,
-    atLeast: wallhaven.atLeast,
-    colors: wallhaven.colors
+    license: wallhaven.license
   })
   readonly property string iconsBrowseFilterSummary: IconBrowseModel.filterSummary(iconsBrowseFilters)
   readonly property bool iconsBrowseFiltersActive: IconBrowseModel.filterKey(iconsBrowseFilters)
     !== IconBrowseModel.filterKey({})
   readonly property bool wallhavenFiltersActive: WallpaperBrowserModel.filtersActive({
-    categories: wallhaven.categories,
+    collection: wallhaven.collection,
     sorting: wallhaven.sorting,
-    order: wallhaven.order,
-    atLeast: wallhaven.atLeast,
-    colors: wallhaven.colors
+    license: wallhaven.license
   })
   readonly property int wallhavenFilterActiveCount: WallpaperBrowserModel.filterActiveCount({
-    categories: wallhaven.categories,
+    collection: wallhaven.collection,
     sorting: wallhaven.sorting,
-    order: wallhaven.order,
-    atLeast: wallhaven.atLeast,
-    colors: wallhaven.colors
+    license: wallhaven.license
   })
   readonly property string catalogFilterSummary: ThemeCatalogModel.catalogFilterSummary(catalogFilters)
   readonly property bool catalogFiltersActive: ThemeCatalogModel.catalogFiltersActive(catalogFilters)
@@ -347,11 +341,9 @@ Item {
 
   function currentWallhavenFilters() {
     return {
-      categories: wallhaven.categories,
+      collection: wallhaven.collection,
       sorting: wallhaven.sorting,
-      order: wallhaven.order,
-      atLeast: wallhaven.atLeast,
-      colors: wallhaven.colors
+      license: wallhaven.license
     }
   }
 
@@ -1255,9 +1247,11 @@ Item {
     if (!item) return filterText ? "No matches" : ""
 
     if (wallhavenMode) {
-      const parts = [String(item.displayName || "Wallhaven")]
+      const parts = [String(item.displayName || "Open wallpaper")]
       if (item.resolution) parts.push(String(item.resolution))
       if (item.category) parts.push(String(item.category))
+      if (item.license) parts.push(String(item.license))
+      if (item.author) parts.push("by " + String(item.author))
       return parts.join("  ·  ")
     }
 
@@ -1522,11 +1516,9 @@ Item {
     const normalized = WallpaperBrowserModel.normalizeFilters(filters)
     const changed = WallpaperBrowserModel.filterKey(normalized)
       !== WallpaperBrowserModel.filterKey(currentWallhavenFilters())
-    wallhaven.categories = normalized.categories
+    wallhaven.collection = normalized.collection
     wallhaven.sorting = normalized.sorting
-    wallhaven.order = normalized.order
-    wallhaven.atLeast = normalized.atLeast
-    wallhaven.colors = normalized.colors
+    wallhaven.license = normalized.license
     persistWallhavenFilters()
 
     if (changed) searchWallhaven()
@@ -1605,11 +1597,9 @@ Item {
 
   function loadWallhavenFiltersState(raw) {
     const state = WallpaperBrowserModel.parseFilters(raw)
-    wallhaven.categories = state.filters.categories
+    wallhaven.collection = state.filters.collection
     wallhaven.sorting = state.filters.sorting
-    wallhaven.order = state.filters.order
-    wallhaven.atLeast = state.filters.atLeast
-    wallhaven.colors = state.filters.colors
+    wallhaven.license = state.filters.license
     wallhavenStickyQuery = state.query
     wallhavenFiltersReady = true
   }
@@ -2360,6 +2350,7 @@ Item {
 
   WallpaperBrowserController {
     id: wallhaven
+    commandPath: root.pluginScriptPath("aether-wallpapers.sh")
     onResultsReady: function(rows, append) { root.acceptWallhavenResults(rows, append) }
     onWallpaperReady: function(path) {
       if (root.wallhavenMode) root.finishSelection(path)
@@ -3290,8 +3281,8 @@ Item {
             if (uninstallButton.visible) offset += uninstallButton.width + Style.space(8)
             return parent.width - width - offset
           }
-          text: "Browse Wallhaven"
-          tooltipText: "Browse SFW Wallhaven wallpapers through Aether (B / Ctrl+B)"
+          text: "Browse wallpapers"
+          tooltipText: "Browse free, openly licensed wallpapers through Aether (B / Ctrl+B)"
           foreground: root.foreground
           accent: root.livePaletteAccent
           bordered: true
@@ -3567,7 +3558,7 @@ Item {
             ? "Loading…"
             : (wallhaven.hasMore ? "Load more" : "All loaded")
           tooltipText: wallhaven.hasMore
-            ? "Load two more Wallhaven pages (Ctrl+N)"
+            ? "Load two more wallpaper pages (Ctrl+N)"
             : "All available results are loaded"
           foreground: root.foreground
           accent: Color.accent
@@ -3672,12 +3663,13 @@ Item {
           if (wallhaven.errorMessage) return wallhaven.errorMessage
           if (wallhaven.loading && root.imageArray.length > 0)
             return "Loading more with Aether…  " + root.imageArray.length + " loaded"
-          if (wallhaven.loading) return "Searching Wallhaven with Aether…"
+          if (wallhaven.loading) return "Searching open wallpapers with Aether…"
+          if (wallhaven.staleResults) return root.imageArray.length + " cached results  ·  Catalog is offline"
           if (root.filterText)
             return "Search: " + root.filterText + "  ·  " + root.imageArray.length + " loaded"
           return wallhaven.totalResults > 0
             ? root.imageArray.length + " of " + wallhaven.totalResults + " loaded  ·  Type to search"
-            : "Type to search Wallhaven"
+            : "Type to search open wallpapers"
         }
         color: wallhaven.errorMessage ? Color.urgent : root.foreground
         opacity: 0.9
@@ -3911,10 +3903,10 @@ Item {
         anchors.verticalCenterOffset: -24
         text: {
           if (wallhaven.errorMessage) return wallhaven.errorMessage
-          if (wallhaven.loading) return "Searching Wallhaven with Aether…"
+          if (wallhaven.loading) return "Searching open wallpapers with Aether…"
           return root.filterText
-            ? "No SFW wallpapers found for “" + root.filterText + "”"
-            : "No Wallhaven wallpapers found"
+            ? "No open wallpapers found for “" + root.filterText + "”"
+            : "No open wallpapers found"
         }
         color: wallhaven.errorMessage ? Color.urgent : root.foreground
         font.pixelSize: Style.font.title

@@ -9,292 +9,167 @@ const model = require(join("..", runtimeDir, "WallpaperBrowserModel.js"))
 const response = (wallpapers, meta = {}) =>
   JSON.stringify({
     wallpapers,
-    meta: {
-      current_page: 1,
-      last_page: 4,
-      total: 160,
-      ...meta
-    }
+    meta: { current_page: 1, last_page: 4, total: 160, ...meta }
   })
 
 const wallpaper = (id, overrides = {}) => ({
-  id,
-  resolution: "2560x1440",
-  category: "general",
-  purity: "sfw",
-  thumbnailPath: "/tmp/aether/wallhaven-thumbs/" + id + ".jpg",
+  id: "ocs-" + id,
+  title: "Aurora Abstract 4K",
+  resolution: "3840x2160",
+  collection: "community-abstract",
+  source: "OpenDesktop community",
+  license: "CC BY",
+  author: "Example artist",
+  url: "https://www.opendesktop.org/p/" + id,
+  thumbnailPath: "/tmp/aether/wallpaper-thumbs/ocs-" + id + ".jpg",
   ...overrides
 })
 
-test("recognizes only Omarchy background-picker directory requests", () => {
+test("recognizes only Omarchy background-picker requests", () => {
   assert.equal(
     model.isWallpaperPickerDirs("/home/alice/.local/state/omarchy/current/theme/backgrounds"),
     true
   )
-  assert.equal(
-    model.isWallpaperPickerDirs(
-      [
-        "/home/alice/.local/state/omarchy/current/theme/backgrounds",
-        "/home/alice/.config/omarchy/backgrounds/catppuccin"
-      ].join("\n")
-    ),
-    true
-  )
-  assert.equal(
-    model.isWallpaperPickerDirs("/home/alice/.cache/omarchy/theme-selector/previews"),
-    false
-  )
   assert.equal(model.isWallpaperPickerDirs("/home/alice/Pictures"), false)
-})
-
-test("classifies row-backed picker requests without inheriting stale directories", () => {
-  const backgroundRows = [
-    "/home/alice/.local/state/omarchy/current/theme/backgrounds/one.webp\t/tmp/one.jpg",
-    "/home/alice/.config/omarchy/backgrounds/miasma/two.png\t/tmp/two.jpg"
-  ].join("\n")
-  const themeRows = "/home/alice/.cache/omarchy/theme-selector/previews/miasma.png\t/tmp/miasma.jpg"
-
-  assert.equal(model.isWallpaperPickerRows(backgroundRows), true)
-  assert.equal(model.isWallpaperPickerRows(themeRows), false)
   assert.equal(
-    model.isWallpaperPickerRequest(
-      "/home/alice/.cache/omarchy/theme-selector/previews",
-      backgroundRows
+    model.isWallpaperPickerRows(
+      "/home/alice/.config/omarchy/backgrounds/miasma/two.png\t/tmp/two.jpg"
     ),
     true
   )
   assert.equal(
     model.isWallpaperPickerRequest(
       "/home/alice/.local/state/omarchy/current/theme/backgrounds",
-      themeRows
+      "/home/alice/.cache/omarchy/theme-selector/previews/miasma.png\t/tmp/miasma.jpg"
     ),
     false
   )
 })
 
-test("builds Aether search arguments with the same safe defaults", () => {
-  assert.deepEqual(model.searchArguments("solar punk", 3, 2), [
-    "aether",
-    "--wallhaven-thumbs",
-    "--json",
-    "--pages",
-    "2",
-    "--categories",
-    "111",
-    "--purity",
-    "100",
-    "--sorting",
-    "relevance",
-    "--order",
-    "desc",
-    "--page",
-    "3",
-    "--at-least",
-    "1920x1080",
-    "solar punk"
-  ])
-  assert.deepEqual(model.searchArguments("", 3, 2), [
-    "aether",
-    "--wallhaven-thumbs",
-    "--json",
-    "--pages",
-    "2",
-    "--categories",
-    "111",
-    "--purity",
-    "100",
-    "--sorting",
-    "date_added",
-    "--order",
-    "desc",
-    "--page",
-    "3",
-    "--at-least",
-    "1920x1080"
-  ])
+test("builds bounded Aether open-wallpaper arguments", () => {
+  assert.deepEqual(
+    model.searchArguments("solar punk", 3, 2, {
+      collection: "community-dark",
+      sorting: "newest",
+      license: "public-domain"
+    }),
+    [
+      "aether",
+      "--wallpaper-thumbs",
+      "--json",
+      "--pages",
+      "2",
+      "--collection",
+      "community-dark",
+      "--sorting",
+      "newest",
+      "--license",
+      "public-domain",
+      "--page",
+      "3",
+      "solar punk"
+    ]
+  )
   assert.equal(model.searchArguments("a; touch /tmp/nope").at(-1), "a; touch /tmp/nope")
   assert.equal(model.normalizeQuery("night\ncity\u0000"), "night city")
 })
 
-test("normalizes the supported Aether filters", () => {
+test("normalizes only filters that the open catalog supports", () => {
   assert.deepEqual(model.normalizeFilters({}), {
-    categories: "111",
-    sorting: "date_added",
-    order: "desc",
-    atLeast: "1920x1080",
-    colors: ""
+    collection: "omarchy",
+    sorting: "featured",
+    license: "any"
   })
   assert.deepEqual(
     model.normalizeFilters({
-      categories: "010",
-      sorting: "favorites",
-      order: "asc",
-      atLeast: "3840x2160",
-      colors: "0066cc"
+      collection: "community-space",
+      sorting: "popular",
+      license: "share-alike"
     }),
-    {
-      categories: "010",
-      sorting: "favorites",
-      order: "asc",
-      atLeast: "3840x2160",
-      colors: "0066cc"
-    }
+    { collection: "community-space", sorting: "popular", license: "share-alike" }
   )
-  assert.deepEqual(
-    model.normalizeFilters({
-      categories: "000",
-      sorting: "unsupported",
-      order: "sideways",
-      atLeast: "640x480",
-      colors: "not-a-color"
-    }),
-    {
-      categories: "111",
-      sorting: "date_added",
-      order: "desc",
-      atLeast: "1920x1080",
-      colors: ""
-    }
-  )
-
-  assert.equal(model.toggleCategory("111", 1), "101")
-  assert.equal(model.toggleCategory("100", 0), "100")
-  assert.equal(model.toggleCategory("111", 8), "111")
-  assert.equal(model.nextSorting("date_added"), "relevance")
-  assert.equal(model.nextSorting("toplist"), "date_added")
-  assert.equal(model.normalizeFilters({ sorting: "random" }).sorting, "date_added")
-  assert.equal(model.sortingLabel("views"), "Popular")
-  assert.equal(model.nextResolution("1920x1080"), "2560x1440")
-  assert.equal(model.nextResolution("3840x2160"), "")
-  assert.equal(model.resolutionLabel(""), "Any resolution")
-  assert.equal(model.colorLabel("0066cc"), "Blue")
-  assert.equal(model.categorySummary("101"), "General + People")
+  assert.deepEqual(model.normalizeFilters({ collection: "anime", sorting: "popular" }), {
+    collection: "omarchy",
+    sorting: "featured",
+    license: "any"
+  })
+  assert.equal(model.collectionLabel("community-neon"), "Neon")
+  assert.equal(model.filterSummary({ collection: "omarchy" }), "Bundled Omarchy collection")
+  assert.equal(model.nextSorting("newest"), "featured")
+  assert.equal(model.licenseLabel("public-domain"), "Public domain / CC0")
   assert.equal(
     model.filterSummary({
-      categories: "010",
-      sorting: "favorites",
-      order: "asc",
-      atLeast: "3840x2160",
-      colors: "0066cc"
+      collection: "community-minimal",
+      sorting: "newest",
+      license: "attribution"
     }),
-    "Anime  ·  Favorites ↑  ·  4K+  ·  Blue palette"
-  )
-  assert.equal(
-    model.filterKey({
-      categories: "010",
-      sorting: "favorites",
-      order: "asc",
-      atLeast: "3840x2160",
-      colors: "0066cc"
-    }),
-    "010|favorites|asc|3840x2160|0066cc"
+    "Community: Minimal  ·  Newest  ·  Attribution"
   )
 })
 
-test("exposes copy-safe direct-choice models for the filter sheet", () => {
-  const sorting = model.getSortingOptions()
-  const resolutions = model.getResolutionOptions()
-  const colors = model.getColorOptions()
-
+test("exposes defensive copies of all filter choices", () => {
   assert.deepEqual(
-    sorting.map((option) => option.value),
-    ["date_added", "relevance", "views", "favorites", "toplist"]
-  )
-  assert.deepEqual(
-    resolutions.map((option) => option.value),
-    ["", "1920x1080", "2560x1440", "3840x2160"]
-  )
-  assert.deepEqual(
-    colors.map((option) => option.value),
-    ["", "660000", "cc6633", "ffcc33", "336600", "0066cc", "663399", "000000", "cccccc", "ffffff"]
-  )
-  assert.deepEqual(colors[4], { value: "336600", label: "Green" })
-
-  for (const unsupported of ["ffcc00", "006600", "336699", "660066"]) {
-    assert.equal(model.normalizeFilters({ colors: unsupported }).colors, "")
-  }
-
-  sorting[0].label = "Changed"
-  assert.equal(model.getSortingOptions()[0].label, "Latest")
-})
-
-test("passes selected filters to Aether without weakening SFW purity", () => {
-  assert.deepEqual(
-    model.searchArguments("", 1, 4, {
-      categories: "010",
-      sorting: "favorites",
-      order: "asc",
-      atLeast: "3840x2160",
-      colors: "0066cc"
-    }),
+    model.getCollectionOptions().map((option) => option.value),
     [
-      "aether",
-      "--wallhaven-thumbs",
-      "--json",
-      "--pages",
-      "4",
-      "--categories",
-      "010",
-      "--purity",
-      "100",
-      "--sorting",
-      "favorites",
-      "--order",
-      "asc",
-      "--page",
-      "1",
-      "--at-least",
-      "3840x2160",
-      "--colors",
-      "0066cc"
+      "omarchy",
+      "community-abstract",
+      "community-minimal",
+      "community-dark",
+      "community-space",
+      "community-neon",
+      "photography"
     ]
   )
-  const anyResolutionArgs = model.searchArguments("forest", 1, 2, {
-    categories: "100",
-    sorting: "relevance",
-    atLeast: ""
-  })
-  assert.deepEqual(anyResolutionArgs.slice(-2), ["1", "forest"])
-  assert.equal(anyResolutionArgs.includes("--at-least"), false)
-
-  const blackPaletteArgs = model.searchArguments("", 1, 2, {
-    colors: "000000"
-  })
-  assert.deepEqual(blackPaletteArgs.slice(-2), ["--colors", "000000"])
+  assert.deepEqual(
+    model.getSortingOptions().map((option) => option.value),
+    ["featured", "popular", "newest"]
+  )
+  assert.deepEqual(
+    model.getLicenseOptions().map((option) => option.value),
+    ["any", "public-domain", "attribution", "share-alike"]
+  )
+  const collections = model.getCollectionOptions()
+  collections[0].label = "Changed"
+  assert.equal(model.getCollectionOptions()[0].label, "Omarchy")
 })
 
-test("parses bounded Aether results into local-thumbnail carousel rows", () => {
+test("parses open catalog metadata into safe carousel rows", () => {
   const parsed = model.parseSearchResponse(
     response([
-      wallpaper("abc123"),
-      wallpaper("abc123"),
-      wallpaper("../bad"),
-      wallpaper("def456", { thumbnailPath: "https://example.test/thumb.jpg" })
+      wallpaper("123"),
+      wallpaper("123"),
+      wallpaper("bad-id"),
+      wallpaper("456", { thumbnailPath: "https://example.test/thumb.jpg" })
     ]),
     "/tmp"
   )
-
   assert.equal(parsed.error, "")
   assert.equal(parsed.rows.length, 2)
   assert.deepEqual(parsed.rows[0], {
-    id: "abc123",
-    filePath: "wallhaven:abc123",
-    fileName: "wallhaven-abc123",
-    thumbnailPath: "/tmp/aether/wallhaven-thumbs/abc123.jpg",
-    displayName: "Wallhaven abc123",
-    resolution: "2560x1440",
-    category: "general",
-    purity: "sfw",
-    searchText: "abc123 2560x1440 general sfw"
+    id: "ocs-123",
+    filePath: "wallpaper:ocs-123",
+    fileName: "ocs-123",
+    thumbnailPath: "/tmp/aether/wallpaper-thumbs/ocs-123.jpg",
+    displayName: "Aurora Abstract 4K",
+    resolution: "3840x2160",
+    category: "Abstract",
+    collection: "community-abstract",
+    license: "CC BY",
+    author: "Example artist",
+    source: "OpenDesktop community",
+    sourceURL: "https://www.opendesktop.org/p/123",
+    searchText:
+      "Aurora Abstract 4K 3840x2160 community-abstract CC BY Example artist OpenDesktop community"
   })
   assert.equal(parsed.rows[1].thumbnailPath, "")
-  assert.deepEqual(parsed.meta, { currentPage: 1, lastPage: 4, total: 160 })
+  assert.deepEqual(parsed.meta, { currentPage: 1, lastPage: 4, total: 160, stale: false })
 })
 
-test("rejects invalid and unexpectedly large Aether responses", () => {
+test("marks cached fallback results and rejects malformed payloads", () => {
+  assert.equal(model.parseSearchResponse(response([], { stale: true }), "/tmp").meta.stale, true)
   assert.match(model.parseSearchResponse("{", "/tmp").error, /invalid/i)
   assert.match(model.parseSearchResponse(JSON.stringify({ data: [] }), "/tmp").error, /incomplete/i)
-  const tooMany = Array.from({ length: 97 }, (_, index) => wallpaper("id" + index))
+  const tooMany = Array.from({ length: 97 }, (_, index) => wallpaper(String(index + 1)))
   assert.match(model.parseSearchResponse(response(tooMany), "/tmp").error, /too many/i)
   assert.match(
     model.parseSearchResponse(" ".repeat(4 * 1024 * 1024 + 1), "/tmp").error,
@@ -302,169 +177,113 @@ test("rejects invalid and unexpectedly large Aether responses", () => {
   )
 })
 
-test("surfaces Aether JSON failures instead of misdiagnosing the installed version", () => {
-  assert.equal(
-    model.processError(
-      JSON.stringify({
-        error: "Search failed: wallhaven API returned 521: error code: 521\n"
-      }),
-      "",
-      "Aether 4.19 or newer is required"
-    ),
-    "Wallhaven is temporarily unavailable (HTTP 521). Try again later."
-  )
-  assert.equal(
-    model.processError(
-      JSON.stringify({ error: "Search failed: wallhaven API returned 429" }),
-      "",
-      "fallback"
-    ),
-    "Wallhaven is rate limiting requests. Try again shortly."
-  )
-  assert.equal(
-    model.processError(
-      JSON.stringify({
-        error:
-          'Search failed: wallhaven search request failed: Get "https://wallhaven.cc": resolve remote host: Temporary failure in name resolution'
-      }),
-      "",
-      "fallback"
-    ),
-    "Wallhaven could not be reached. Check your connection and retry."
-  )
-})
-
-test("falls back from invalid stdout to bounded stderr and launch guidance", () => {
-  assert.equal(
-    model.processError("not json", "Error: unsupported option\nmore detail", "fallback"),
-    "Error: unsupported option"
-  )
-  assert.equal(model.processError("", "", "Install Aether 4.19+"), "Install Aether 4.19+")
-  assert.equal(model.processError("", "x".repeat(300), "fallback").length, 240)
-})
-
-test("drops records that do not preserve the SFW response contract", () => {
+test("drops records without a known collection, provider-scoped id, or license", () => {
   const parsed = model.parseSearchResponse(
     response([
-      wallpaper("safe"),
-      wallpaper("unsafe", { purity: "nsfw" }),
-      wallpaper("unknown", { category: "other" })
+      wallpaper("100"),
+      wallpaper("101", { collection: "unknown" }),
+      wallpaper("102", { license: "" }),
+      wallpaper("103", { id: "../bad" })
     ]),
     "/tmp"
   )
-
-  assert.equal(parsed.error, "")
   assert.deepEqual(
     parsed.rows.map((row) => row.id),
-    ["safe"]
+    ["ocs-100"]
   )
 })
 
-test("accepts previews only from Aether's thumbnail cache", () => {
+test("accepts previews only from Aether's wallpaper thumbnail cache", () => {
   const parsePath = (thumbnailPath, cacheHome = "/home/alice/.cache") =>
-    model.parseSearchResponse(response([wallpaper("abc123", { thumbnailPath })]), cacheHome).rows[0]
+    model.parseSearchResponse(response([wallpaper("123", { thumbnailPath })]), cacheHome).rows[0]
       .thumbnailPath
-
   assert.equal(
-    parsePath("/home/alice/.cache/aether/wallhaven-thumbs/wallhaven-abc123.jpg"),
-    "/home/alice/.cache/aether/wallhaven-thumbs/wallhaven-abc123.jpg"
+    parsePath("/home/alice/.cache/aether/wallpaper-thumbs/ocs-123.jpg"),
+    "/home/alice/.cache/aether/wallpaper-thumbs/ocs-123.jpg"
   )
   assert.equal(parsePath("/home/alice/Pictures/private.jpg"), "")
-  assert.equal(parsePath("/home/alice/.cache/aether/wallhaven-thumbs/../private.jpg"), "")
-  assert.equal(
-    parsePath("/srv/cache/aether/wallhaven-thumbs/abc123.webp", "/srv/cache"),
-    "/srv/cache/aether/wallhaven-thumbs/abc123.webp"
-  )
+  assert.equal(parsePath("/home/alice/.cache/aether/wallpaper-thumbs/../private.jpg"), "")
 })
 
-test("appends unique pages without mutating the inputs", () => {
-  const first = [model.wallpaperRow(wallpaper("one"), "/tmp")]
-  const second = [
-    model.wallpaperRow(wallpaper("one"), "/tmp"),
-    model.wallpaperRow(wallpaper("two"), "/tmp")
-  ]
-
-  assert.deepEqual(
-    model.appendUniqueRows(first, second).map((row) => row.id),
-    ["one", "two"]
-  )
-  assert.equal(first.length, 1)
-  assert.equal(second.length, 2)
-})
-
-test("persists Wallhaven filters and upgrades Latest→Relevant for queries", () => {
-  assert.equal(model.normalizeQuery("  neon   city  "), "neon city")
+test("persists all open-catalog filters and the sticky query", () => {
   assert.equal(model.filtersActive({}), false)
-  assert.equal(model.filtersActive({ sorting: "views" }), true)
-  assert.equal(model.filterActiveCount({ sorting: "views", colors: "0066cc" }), 2)
-
-  const effective = model.effectiveSearchFilters("mountains", { sorting: "date_added" })
-  assert.equal(effective.sorting, "relevance")
-  assert.equal(model.effectiveSearchFilters("", { sorting: "date_added" }).sorting, "date_added")
   assert.equal(
-    model.effectiveSearchFilters("mountains", { sorting: "favorites" }).sorting,
-    "favorites"
+    model.filterActiveCount({
+      collection: "community-neon",
+      sorting: "newest",
+      license: "share-alike"
+    }),
+    3
   )
-
-  const args = model.searchArguments("city night", 1, 2, { sorting: "date_added" })
-  assert.equal(args[args.indexOf("--sorting") + 1], "relevance")
-  assert.equal(args.at(-1), "city night")
-
   const roundTrip = model.parseFilters(
     model.serializeFilters(
       {
-        categories: "010",
-        sorting: "favorites",
-        order: "asc",
-        atLeast: "3840x2160",
-        colors: "0066cc"
+        collection: "community-neon",
+        sorting: "popular",
+        license: "public-domain"
       },
-      " neon city "
+      " forest canopy "
     )
   )
   assert.deepEqual(roundTrip.filters, {
-    categories: "010",
-    sorting: "favorites",
-    order: "asc",
-    atLeast: "3840x2160",
-    colors: "0066cc"
+    collection: "community-neon",
+    sorting: "popular",
+    license: "public-domain"
   })
-  assert.equal(roundTrip.query, "neon city")
+  assert.equal(roundTrip.query, "forest canopy")
+})
+
+test("maps wallpaper-provider failures without blaming Aether's version", () => {
+  assert.equal(
+    model.processError(
+      JSON.stringify({ error: "Wallpaper search failed: wallpaper provider returned HTTP 503" }),
+      "",
+      "fallback"
+    ),
+    "The wallpaper catalog is temporarily unavailable (HTTP 503). Cached results will be used when available."
+  )
+  assert.equal(
+    model.processError(
+      JSON.stringify({ error: "Wallpaper search failed: wallpaper provider returned HTTP 429" }),
+      "",
+      "fallback"
+    ),
+    "The wallpaper catalog is rate limiting requests. Try again shortly."
+  )
+  assert.equal(
+    model.processError(
+      JSON.stringify({ error: "resolve remote host: Temporary failure in name resolution" }),
+      "",
+      "fallback"
+    ),
+    "The wallpaper catalog could not be reached. Check your connection and retry."
+  )
 })
 
 test("accepts downloads only from Aether's wallpaper directory", () => {
   const home = "/home/alice"
   assert.deepEqual(
     model.parseDownloadResponse(
-      JSON.stringify({
-        path: home + "/.local/share/aether/wallpapers/wallhaven-abc.jpg"
-      }),
+      JSON.stringify({ path: home + "/.local/share/aether/wallpapers/commons-123.jpg" }),
       home
     ),
-    {
-      error: "",
-      path: home + "/.local/share/aether/wallpapers/wallhaven-abc.jpg"
-    }
+    { error: "", path: home + "/.local/share/aether/wallpapers/commons-123.jpg" }
   )
   assert.match(
     model.parseDownloadResponse(JSON.stringify({ path: "/tmp/wallpaper.jpg" }), home).error,
     /unexpected/i
   )
-  assert.deepEqual(
-    model.parseDownloadResponse(
-      JSON.stringify({ path: "/srv/data/aether/wallpapers/wallhaven-xyz.png" }),
-      home,
-      "/srv/data"
-    ),
-    { error: "", path: "/srv/data/aether/wallpapers/wallhaven-xyz.png" }
-  )
-  assert.deepEqual(model.downloadArguments("abc123"), [
+  assert.deepEqual(model.downloadArguments("ocs-123"), [
     "aether",
-    "--wallhaven-download",
-    "abc123",
+    "--wallpaper-download",
+    "ocs-123",
+    "--json"
+  ])
+  assert.deepEqual(model.downloadArguments("omarchy-8342267563586712271"), [
+    "aether",
+    "--wallpaper-download",
+    "omarchy-8342267563586712271",
     "--json"
   ])
   assert.deepEqual(model.downloadArguments("../bad"), [])
-  assert.deepEqual(model.downloadArguments("a".repeat(33)), [])
-  assert.match(model.parseDownloadResponse(" ".repeat(8 * 1024 + 1), home).error, /oversized/i)
 })

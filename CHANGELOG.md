@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.0 - 2026-09-20
+
+- Replace Wallhaven browsing with a free open-wallpaper catalog: desktop-oriented
+  official Omarchy art by default, with OpenDesktop community art and Commons
+  photography kept as optional collections.
+  No paid account or API key is required.
+- Use the local Omarchy-bundled wallpaper library as the curated, offline
+  default, excluding the Omarchy-logo variants from browsing.
+- Load one 24-item batch initially, generate previews with a faster scaler, and
+  invalidate cached previews only when their installed source changes.
+- Clarify that this is an independent community plugin and that bundled wallpaper
+  and Omarchy trademark rights are not granted by the plugin's MIT license.
+- Use OpenDesktop's broad Abstract category instead of GNOME-Look's GNOME-specific
+  category, and exclude obvious desktop, distro, OS, and logo branding.
+- Rename **Browse Wallhaven** to **Browse wallpapers** and make all exposed
+  filters functional: Abstract/Minimal/Dark/Space/Neon/Photography collection,
+  Featured/Popular/Newest ordering, and open-license class.
+- Admit only direct image downloads carrying explicit CC0, CC-BY, or CC-BY-SA
+  metadata; reject packages, paid files, ambiguous licensing, and untrusted hosts.
+- Use Aether's bounded provider client for search, three-wide thumbnail fetching,
+  cached outage fallback, full downloads, and attribution sidecars.
+
 ## 0.6.9 - 2026-09-19
 
 - Decode Aether's structured JSON errors from stdout when Wallhaven searches or

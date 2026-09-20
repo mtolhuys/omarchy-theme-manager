@@ -5,7 +5,7 @@ import qs.Ui
 Row {
   id: root
 
-  property string summary: "All categories  ·  Latest ↓  ·  1080p+"
+  property string summary: "Abstract  ·  Featured  ·  Any open license"
   property bool filtersActive: false
   property int activeCount: 0
   property color foreground: Color.foreground
