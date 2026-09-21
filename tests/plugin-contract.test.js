@@ -9,7 +9,7 @@ const read = (path) => readFile(join(process.cwd(), path), "utf8")
 test("keeps the published Theme Manager identity as the sole picker clone", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   assert.equal(manifest.id, "io.github.mtolhuys.theme-manager")
-  assert.equal(manifest.version, "0.7.1")
+  assert.equal(manifest.version, "0.8.0")
   assert.deepEqual(manifest.kinds, ["overlay"])
   assert.match(manifest.entryPoints.overlay, /^v[0-9]{4}\/ImagePicker\.qml$/)
   assert.equal(manifest.omarchy.clonedFrom, "omarchy.image-picker")
@@ -55,7 +55,10 @@ test("versions the complete QML and JavaScript runtime graph", async () => {
     "IconBrowseController.qml",
     "IconBrowseModel.js",
     "IconBrowseFilterBar.qml",
-    "IconBrowseFilterSheet.qml"
+    "IconBrowseFilterSheet.qml",
+    "ThemeCollectionsController.qml",
+    "ThemeCollectionsModel.js",
+    "ThemeCollectionsSheet.qml"
   ]) {
     assert.ok((await read(join(runtimeDir, file))).length > 0, file)
   }
@@ -159,6 +162,67 @@ test("routes theme and wallpaper features by request context", async () => {
   assert.match(picker, /catalogStickyQuery/)
   assert.match(picker, /refreshCatalogRows/)
   assert.doesNotMatch(picker, /io\.github\.mtolhuys\.wallpaper-manager/)
+})
+
+test("organises installed themes locally through the existing state writer", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const runtimeDir = dirname(manifest.entryPoints.overlay)
+  const picker = await read(join(runtimeDir, "ImagePicker.qml"))
+  const controller = await read(join(runtimeDir, "ThemeCollectionsController.qml"))
+  const model = await read(join(runtimeDir, "ThemeCollectionsModel.js"))
+  const sheet = await read(join(runtimeDir, "ThemeCollectionsSheet.qml"))
+
+  // Same FileView block as the sticky memory file; no helper process, no network.
+  assert.match(picker, /theme-collections\.json/)
+  assert.match(
+    controller,
+    /FileView \{\s+id: stateFile\s+path: root\.statePath\s+atomicWrites: true\s+printErrors: false/
+  )
+  assert.match(controller, /id: backupFile[\s\S]*?preload: false[\s\S]*?atomicWrites: true/)
+  assert.match(controller, /ThemeCollectionsModel\.backupPath\(root\.statePath\)/)
+  assert.doesNotMatch(controller, /Process \{|execDetached|execArgv|Quickshell\.env/)
+  assert.doesNotMatch(model + sheet, /XMLHttpRequest|http/)
+
+  // Grid view rides on the bounded carousel pool instead of a second Repeater.
+  assert.match(picker, /themeCollections\.gridCell\(index\)/)
+  assert.match(picker, /poolSize: root\.carouselPoolSize/)
+  assert.equal((picker.match(/model: root\.carouselPoolSize/g) || []).length, 1)
+  assert.match(picker, /model: root\.themeGridActive \? themeCollections\.gridHeaders : \[\]/)
+  assert.match(model, /slots\[cell\.position % size\]/)
+
+  // Search extends the existing installed-theme match to collection names.
+  assert.match(controller, /ImagePickerModel\.textMatches/)
+  assert.match(
+    picker,
+    /themeCollectionsActive \? themeCollections\.matchingIndices : textMatchingIndices/
+  )
+
+  // Bindings: Delete edits a collection only when one is selected.
+  assert.match(
+    picker,
+    /if \(!themeCollections\.removeSelectedFromCollection\(\)\)\s+themeManager\.requestUninstall\(\)/
+  )
+  for (const key of ["Key_G", "Key_M", "Key_R"]) {
+    assert.match(
+      picker,
+      new RegExp(
+        "event\\.key === Qt\\." +
+          key +
+          "\\s+&& \\(event\\.modifiers & Qt\\.ControlModifier\\) !== 0\\s+&& root\\.themeCollectionsActive"
+      )
+    )
+  }
+  assert.match(
+    picker,
+    /Key_N\s+&& \(event\.modifiers & Qt\.ControlModifier\) !== 0\s+&& \(event\.modifiers & Qt\.ShiftModifier\) !== 0\s+&& root\.themeCollectionsActive/
+  )
+  assert.match(
+    picker,
+    /Key_D\s+&& \(event\.modifiers & Qt\.ControlModifier\) !== 0\s+&& \(event\.modifiers & Qt\.ShiftModifier\) !== 0\s+&& root\.themeCollectionsActive/
+  )
+  assert.match(picker, /ThemeCollectionsSheet \{/)
+  assert.match(picker, /id: themeGridButton/)
+  assert.match(picker, /text: "ACTIVE"/)
 })
 
 test("publishes catalog cache entries through a checked directory descriptor", async () => {

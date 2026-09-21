@@ -19,7 +19,7 @@ import "IconBrowseModel.js" as IconBrowseModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.7.1"
+  readonly property string buildIdentity: "0.8.0"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   property var manifest: null
@@ -61,6 +61,7 @@ Item {
   property bool wallpaperPickerRequest: false
   readonly property string wallpaperCommandStatePath: Quickshell.env("HOME") + "/.config/omarchy/wallpaper-command-center.json"
   readonly property string themeMemoryStatePath: Quickshell.env("HOME") + "/.config/omarchy/theme-manager-memory.json"
+  readonly property string themeCollectionsStatePath: Quickshell.env("HOME") + "/.config/omarchy/theme-collections.json"
   readonly property string homeDir: Quickshell.env("HOME")
   readonly property string themeBackgroundsRoot: homeDir + "/.config/omarchy/backgrounds"
   readonly property string currentThemeRoot: stateHome + "/omarchy/current/theme/backgrounds"
@@ -148,6 +149,17 @@ Item {
   // themePickerActive — once iconsMode swaps the carousel off themes,
   // selectedThemeName goes empty and that flag falsely drops.
   readonly property bool localIconsMode: iconsMode && !iconsBrowseMode
+  // Installed-theme rows are on screen. Keyed off the loaded rows, not the
+  // selection, so an empty match set cannot flip it and re-filter itself.
+  readonly property bool themeRowsLoaded: imageArray.length > 0
+    && ThemeManagerModel.isThemePreviewPath(imageArray[0].filePath)
+  readonly property bool themeCollectionsActive: themeRowsLoaded
+    && !catalogMode
+    && !wallhavenMode
+    && !iconsMode
+    && !iconsBrowseMode
+    && !wallpaperPickerActive
+  readonly property bool themeGridActive: themeCollectionsActive && themeCollections.gridMode
   readonly property bool hasWallpaperMemory: ThemeMemoryModel.hasWallpaperOverride(themeMemoryState, currentThemeName)
   readonly property bool hasIconsMemory: ThemeMemoryModel.hasIconsOverride(themeMemoryState, currentThemeName)
   readonly property bool canRemoveInstalledWallpaper: localWallpaperMode
@@ -286,6 +298,11 @@ Item {
       favoriteCount: favoriteIds.length,
       currentFavorite: currentFavorite,
       favoritesOnly: favoritesOnly,
+      themeGrid: themeGridActive,
+      themeFavoriteCount: themeCollections.favoriteCount,
+      themeCollectionCount: themeCollections.collectionCount,
+      themeCollection: themeCollections.selectedCollectionId,
+      themeFavoritesOnly: themeCollections.favoritesOnly,
       paletteReady: wallpaperPalette.ready,
       paletteSampledPath: wallpaperPalette.sampledPath,
       paletteSourcePath: currentPaletteSource()
@@ -303,6 +320,7 @@ Item {
 
   onOpenedChanged: {
     if (!opened) {
+      if (collectionsSheet.opened) collectionsSheet.cancel()
       if (catalogMode) leaveCatalog(false)
       if (wallhavenMode) leaveWallhaven(false)
       if (iconsBrowseMode) leaveIconsBrowse(false)
@@ -1294,6 +1312,28 @@ Item {
     themeCatalog.load()
   }
 
+  function openThemeMemberships() {
+    if (!themeCollectionsActive || !themeManager.selectedThemeName) return
+    collectionsSheet.openMemberships(
+      themeCollections.themeLabel(themeManager.selectedThemeName),
+      themeCollections.membershipRows())
+  }
+
+  function openThemeCollectionCreate() {
+    if (!themeCollectionsActive || !themeManager.selectedThemeName) return
+    collectionsSheet.openCreate(themeCollections.themeLabel(themeManager.selectedThemeName))
+  }
+
+  function openThemeCollectionRename() {
+    if (!themeCollections.canRename) {
+      showStatus("Highlight a collection in the grid first (Ctrl+G)")
+      return
+    }
+    collectionsSheet.openRename(
+      themeCollections.selectedCollection.id,
+      themeCollections.selectedCollection.name)
+  }
+
   function filterTypingActive() {
     return wallhavenMode || iconsBrowseMode || iconsMode || catalogMode || filterable
   }
@@ -1866,7 +1906,8 @@ Item {
     imageArray,
     searchAlreadyApplied ? "" : filterText)
   readonly property var matchingIndices: {
-    if (!(localWallpaperMode && favoritesOnly)) return textMatchingIndices
+    if (!(localWallpaperMode && favoritesOnly))
+      return themeCollectionsActive ? themeCollections.matchingIndices : textMatchingIndices
     const next = []
     for (let position = 0; position < textMatchingIndices.length; position++) {
       const index = textMatchingIndices[position]
@@ -2384,6 +2425,27 @@ Item {
     onFocusRequested: Qt.callLater(root.focusPicker)
   }
 
+  ThemeCollectionsController {
+    id: themeCollections
+    statePath: root.themeCollectionsStatePath
+    pickerOpen: root.opened
+    active: root.themeCollectionsActive
+    images: root.imageArray
+    textMatchingIndices: root.textMatchingIndices
+    filterText: root.filterText
+    stockThemes: themeManager.stockThemes
+    inventoryReady: themeManager.inventoryReady
+    currentThemeName: root.currentThemeName
+    selectedThemeName: themeManager.selectedThemeName
+    selectedIndex: root.selectedIndex
+    gridWidth: Math.min(carousel.width, panel.width - Style.space(80))
+    gridHeight: carousel.height
+    poolSize: root.carouselPoolSize
+    onSelectionRequested: function(imageIndex) { root.select(imageIndex, true) }
+    onStatusMessage: function(message) { root.showStatus(message) }
+    onFocusRequested: Qt.callLater(root.focusPicker)
+  }
+
   PanelWindow {
     id: panel
 
@@ -2437,6 +2499,11 @@ Item {
           return
         }
 
+        if (collectionsSheet.opened) {
+          if (collectionsSheet.handleKey(event)) event.accepted = true
+          return
+        }
+
         if (wallpaperActionsDropdown.popupOpen) {
           if (event.key === Qt.Key_Escape) {
             wallpaperActionsDropdown.close()
@@ -2459,7 +2526,40 @@ Item {
                    && !root.iconsMode
                    && !root.iconsBrowseMode
                    && themeManager.themePickerActive) {
-          themeManager.requestUninstall()
+          if (!themeCollections.removeSelectedFromCollection())
+            themeManager.requestUninstall()
+          event.accepted = true
+        } else if (event.key === Qt.Key_G
+                   && (event.modifiers & Qt.ControlModifier) !== 0
+                   && root.themeCollectionsActive) {
+          themeCollections.toggleGrid()
+          event.accepted = true
+        } else if (event.key === Qt.Key_M
+                   && (event.modifiers & Qt.ControlModifier) !== 0
+                   && root.themeCollectionsActive) {
+          root.openThemeMemberships()
+          event.accepted = true
+        } else if (event.key === Qt.Key_N
+                   && (event.modifiers & Qt.ControlModifier) !== 0
+                   && (event.modifiers & Qt.ShiftModifier) !== 0
+                   && root.themeCollectionsActive) {
+          root.openThemeCollectionCreate()
+          event.accepted = true
+        } else if (event.key === Qt.Key_R
+                   && (event.modifiers & Qt.ControlModifier) !== 0
+                   && root.themeCollectionsActive) {
+          root.openThemeCollectionRename()
+          event.accepted = true
+        } else if (event.key === Qt.Key_D
+                   && (event.modifiers & Qt.ControlModifier) !== 0
+                   && (event.modifiers & Qt.ShiftModifier) !== 0
+                   && root.themeCollectionsActive) {
+          themeCollections.toggleFavoritesOnly()
+          event.accepted = true
+        } else if (event.key === Qt.Key_D
+                   && (event.modifiers & Qt.ControlModifier) !== 0
+                   && root.themeCollectionsActive) {
+          themeCollections.toggleFavorite()
           event.accepted = true
         } else if (event.key === Qt.Key_I
             && (event.modifiers & Qt.ControlModifier) !== 0
@@ -2554,6 +2654,20 @@ Item {
         } else if ((root.wallhavenMode || root.iconsBrowseMode || root.iconsMode || root.catalogMode || root.filterable) && Util.editsFilter(event, root.filterText)) {
           root.updateFilter(Util.editedFilter(event, root.filterText))
           event.accepted = true
+        } else if (root.themeGridActive
+                   && (event.key === Qt.Key_Up || event.key === Qt.Key_Down)) {
+          themeCollections.moveGrid(0, event.key === Qt.Key_Down ? 1 : -1)
+          event.accepted = true
+        } else if (root.themeGridActive
+                   && (event.key === Qt.Key_Left
+                       || (event.key === Qt.Key_Tab && event.modifiers & Qt.ShiftModifier)
+                       || event.key === Qt.Key_Backtab)) {
+          themeCollections.moveGrid(-1, 0)
+          event.accepted = true
+        } else if (root.themeGridActive
+                   && (event.key === Qt.Key_Right || event.key === Qt.Key_Tab)) {
+          themeCollections.moveGrid(1, 0)
+          event.accepted = true
         } else if (event.key === Qt.Key_Left || (event.key === Qt.Key_Tab && event.modifiers & Qt.ShiftModifier) || event.key === Qt.Key_Backtab) {
           root.selectAdjacent(-1)
           event.accepted = true
@@ -2626,10 +2740,49 @@ Item {
         anchors.bottomMargin: root.bottomChromeHeight
         anchors.horizontalCenter: parent.horizontalCenter
         width: root.expandedWidth + 13 * (root.sliceWidth + root.sliceSpacing)
-        clip: false
+        clip: root.themeGridActive
 
         readonly property real itemStep: root.sliceWidth + root.sliceSpacing
         readonly property real previewX: (width - root.expandedWidth) / 2
+
+        // Section titles for the rows the grid window shows (at most four).
+        Repeater {
+          model: root.themeGridActive ? themeCollections.gridHeaders : []
+
+          delegate: Item {
+            required property var modelData
+            x: themeCollections.geometry.offsetX
+            y: modelData.y
+            width: carousel.width - 2 * themeCollections.geometry.offsetX
+            height: themeCollections.geometry.headerHeight
+
+            Text {
+              anchors.left: parent.left
+              anchors.bottom: parent.bottom
+              text: String(modelData.text || "")
+              color: modelData.sectionId === themeCollections.selectedCollectionId
+                ? root.livePaletteAccent
+                : root.foreground
+              style: Text.Outline
+              styleColor: Util.alpha(root.dimColor, 0.7)
+              font.pixelSize: Style.font.title
+              font.weight: Font.DemiBold
+              textFormat: Text.PlainText
+            }
+
+            Text {
+              anchors.right: parent.right
+              anchors.bottom: parent.bottom
+              text: String(modelData.count || 0)
+              color: root.foreground
+              opacity: 0.7
+              style: Text.Outline
+              styleColor: Util.alpha(root.dimColor, 0.7)
+              font.pixelSize: Style.font.body
+              textFormat: Text.PlainText
+            }
+          }
+        }
 
         Repeater {
           id: carouselRepeater
@@ -2654,10 +2807,13 @@ Item {
               root.carouselCursor,
               root.matchingIndices.length,
               root.carouselPoolSize)
-            readonly property int imageIndex: matchPosition >= 0
-              && matchPosition < root.matchingIndices.length
-              ? root.matchingIndices[matchPosition]
-              : -1
+            // Grid mode reuses this pool: each slot shows one visible grid cell.
+            readonly property var gridCell: root.themeGridActive ? themeCollections.gridCell(index) : null
+            readonly property int imageIndex: root.themeGridActive
+              ? (gridCell ? gridCell.imageIndex : -1)
+              : (matchPosition >= 0 && matchPosition < root.matchingIndices.length
+                  ? root.matchingIndices[matchPosition]
+                  : -1)
             readonly property var imageData: root.imageModelEpoch >= 0
               && imageIndex >= 0
               && imageIndex < root.imageArray.length
@@ -2668,10 +2824,14 @@ Item {
             readonly property string thumbnailPath: imageData ? imageData.thumbnailPath : ""
 
             readonly property bool matched: imageIndex >= 0
-            readonly property bool selected: matched && imageIndex === root.selectedIndex
+            readonly property bool selected: root.themeGridActive
+              ? (gridCell !== null && gridCell.position === themeCollections.gridCursor)
+              : (matched && imageIndex === root.selectedIndex)
             // Keep one recycled slot hidden beyond each edge so its source/x
             // jump can never sweep across the visible carousel.
-            readonly property bool nearby: matched && Math.abs(relativeIndex) <= 7
+            readonly property bool nearby: root.themeGridActive
+              ? matched
+              : (matched && Math.abs(relativeIndex) <= 7)
             property bool sourceActivated: nearby
             onNearbyChanged: if (nearby) sourceActivated = true
             onFilePathChanged: {
@@ -2682,30 +2842,40 @@ Item {
             }
 
             visible: nearby
-            x: selected ? carousel.previewX : (relativeIndex < 0 ? carousel.previewX + relativeIndex * carousel.itemStep : carousel.previewX + root.expandedWidth + root.sliceSpacing + (relativeIndex - 1) * carousel.itemStep)
-            width: selected ? root.expandedWidth : root.sliceWidth
-            height: selected ? root.expandedHeight : root.sliceHeight
-            y: selected ? 0 : (root.expandedHeight - root.sliceHeight) / 2
-            z: selected ? 100 : 50 - Math.min(Math.abs(relativeIndex), 40)
+            x: root.themeGridActive
+              ? (gridCell ? gridCell.x : 0)
+              : (selected ? carousel.previewX : (relativeIndex < 0 ? carousel.previewX + relativeIndex * carousel.itemStep : carousel.previewX + root.expandedWidth + root.sliceSpacing + (relativeIndex - 1) * carousel.itemStep))
+            width: root.themeGridActive
+              ? (gridCell ? gridCell.width : 0)
+              : (selected ? root.expandedWidth : root.sliceWidth)
+            height: root.themeGridActive
+              ? (gridCell ? gridCell.height : 0)
+              : (selected ? root.expandedHeight : root.sliceHeight)
+            y: root.themeGridActive
+              ? (gridCell ? gridCell.y : 0)
+              : (selected ? 0 : (root.expandedHeight - root.sliceHeight) / 2)
+            z: root.themeGridActive
+              ? (selected ? 100 : 50)
+              : (selected ? 100 : 50 - Math.min(Math.abs(relativeIndex), 40))
 
             Behavior on x {
-              enabled: root.opened && root.layoutSettled
+              enabled: root.opened && root.layoutSettled && !root.themeGridActive
               NumberAnimation { duration: 320; easing.type: Easing.OutCubic }
             }
             Behavior on y {
-              enabled: root.opened && root.layoutSettled
+              enabled: root.opened && root.layoutSettled && !root.themeGridActive
               NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
             }
             Behavior on width {
-              enabled: root.opened && root.layoutSettled
+              enabled: root.opened && root.layoutSettled && !root.themeGridActive
               NumberAnimation { duration: 320; easing.type: Easing.OutCubic }
             }
             Behavior on height {
-              enabled: root.opened && root.layoutSettled
+              enabled: root.opened && root.layoutSettled && !root.themeGridActive
               NumberAnimation { duration: 320; easing.type: Easing.OutCubic }
             }
 
-            readonly property real skAbs: Math.abs(root.skewOffset)
+            readonly property real skAbs: root.themeGridActive ? 0 : Math.abs(root.skewOffset)
             readonly property real topLeft: root.skewOffset >= 0 ? skAbs : 0
             readonly property real topRight: root.skewOffset >= 0 ? width : width - skAbs
             readonly property real bottomRight: root.skewOffset >= 0 ? width - skAbs : width
@@ -2845,18 +3015,19 @@ Item {
 
               Rectangle {
                 anchors.fill: parent
-                color: Util.alpha(root.dimColor, item.selected ? 0 : 0.42)
+                color: Util.alpha(root.dimColor, item.selected ? 0 : (root.themeGridActive ? 0.18 : 0.42))
               }
 
               Text {
                 anchors.top: parent.top
                 anchors.right: parent.right
                 anchors.margins: Style.space(12)
-                visible: root.localWallpaperMode
+                visible: (root.localWallpaperMode
                   && WallpaperCommandModel.isFavorite(
                     root.favoriteIds,
                     item.filePath,
-                    root.wallpaperFavoriteContext())
+                    root.wallpaperFavoriteContext()))
+                  || (root.themeCollectionsActive && themeCollections.isFavoriteImage(item.imageData))
                 text: "★"
                 color: root.livePaletteAccent
                 style: Text.Outline
@@ -2865,6 +3036,53 @@ Item {
                 font.weight: Font.Bold
                 opacity: item.selected ? 1.0 : 0.86
                 Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+              }
+
+              Rectangle {
+                visible: root.themeGridActive
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: gridCaption.implicitHeight + Style.space(10)
+                color: Util.alpha(root.dimColor, item.selected ? 0.62 : 0.74)
+
+                Text {
+                  id: gridCaption
+                  anchors.centerIn: parent
+                  width: parent.width - Style.space(16)
+                  text: root.labelForPath(item.filePath)
+                  color: root.foreground
+                  horizontalAlignment: Text.AlignHCenter
+                  elide: Text.ElideRight
+                  font.pixelSize: Style.font.body
+                  font.weight: item.selected ? Font.DemiBold : Font.Normal
+                  textFormat: Text.PlainText
+                }
+              }
+
+              // The applied theme, as distinct from the highlighted card.
+              Rectangle {
+                visible: root.themeCollectionsActive && themeCollections.isCurrentImage(item.imageData)
+                x: Style.space(item.selected && !root.themeGridActive ? 14 : 8)
+                y: root.themeGridActive
+                  ? Style.space(8)
+                  : parent.height - height - Style.space(item.selected ? 14 : 12)
+                width: activeBadge.implicitWidth + Style.space(12)
+                height: activeBadge.implicitHeight + Style.space(6)
+                radius: height / 2
+                color: Util.alpha(root.livePaletteBase, 0.88)
+                border.width: 1
+                border.color: Util.alpha(root.livePaletteAccent, 0.85)
+
+                Text {
+                  id: activeBadge
+                  anchors.centerIn: parent
+                  text: "ACTIVE"
+                  color: root.livePaletteAccent
+                  font.pixelSize: Style.font.caption
+                  font.weight: Font.Bold
+                  textFormat: Text.PlainText
+                }
               }
 
               Rectangle {
@@ -2929,7 +3147,9 @@ Item {
               cursorShape: Qt.PointingHandCursor
               onClicked: {
                 if (item.selected) root.applySelected()
-                else {
+                else if (root.themeGridActive) {
+                  if (item.gridCell) themeCollections.selectGridPosition(item.gridCell.position)
+                } else {
                   root.select(item.imageIndex, false, root.carouselCursor + item.relativeIndex)
                   root.focusPicker()
                 }
@@ -2964,7 +3184,8 @@ Item {
           uninstallButton.implicitHeight,
           catalogReviewButton.implicitHeight,
           wallpapersCrossNavButton.implicitHeight,
-          themesCrossNavButton.implicitHeight
+          themesCrossNavButton.implicitHeight,
+          themeGridButton.implicitHeight
         )
         readonly property real leftReserved: {
           let width = 0
@@ -2975,6 +3196,10 @@ Item {
           }
           if (wallpapersCrossNavButton.visible)
             width = Math.max(width, wallpapersCrossNavButton.implicitWidth)
+          if (themeGridButton.visible) {
+            if (width > 0) width += Style.space(8)
+            width += themeGridButton.implicitWidth
+          }
           if (catalogBackButton.visible)
             width = Math.max(width, catalogBackButton.implicitWidth)
           if (wallhavenBackButton.visible)
@@ -3473,6 +3698,24 @@ Item {
         }
 
         Button {
+          id: themeGridButton
+          visible: root.themeCollectionsActive
+          anchors.left: wallpapersCrossNavButton.visible ? wallpapersCrossNavButton.right : parent.left
+          anchors.leftMargin: wallpapersCrossNavButton.visible ? Style.space(8) : 0
+          anchors.verticalCenter: parent.verticalCenter
+          text: themeCollections.gridMode ? "Carousel" : "Grid"
+          tooltipText: themeCollections.gridMode
+            ? "Back to the carousel (Ctrl+G)"
+            : "Favorites and collections as a grid (Ctrl+G)  ·  Ctrl+D star  ·  Ctrl+M collections"
+          foreground: root.foreground
+          accent: Color.accent
+          bordered: true
+          horizontalPadding: Style.space(12)
+          verticalPadding: Style.space(7)
+          onClicked: themeCollections.toggleGrid()
+        }
+
+        Button {
           id: themesCrossNavButton
           visible: root.localWallpaperMode
           anchors.left: wallpaperActionsDropdown.visible ? wallpaperActionsDropdown.right : parent.left
@@ -3761,6 +4004,20 @@ Item {
         }
 
         Text {
+          visible: root.themeCollectionsActive && !root.filterText && themeCollections.hint !== ""
+          width: parent.width
+          text: themeCollections.hint
+          color: root.foreground
+          opacity: 0.8
+          style: Text.Outline
+          styleColor: Util.alpha(root.dimColor, 0.7)
+          font.pixelSize: Style.font.caption
+          horizontalAlignment: Text.AlignHCenter
+          elide: Text.ElideRight
+          textFormat: Text.PlainText
+        }
+
+        Text {
           visible: !root.wallhavenMode && root.filterable && root.filterText
           width: parent.width
           text: root.catalogMode
@@ -3993,6 +4250,28 @@ Item {
       accent: Color.accent
       onCanceled: Qt.callLater(root.focusPicker)
       onApplied: function(filters) { root.applyIconsBrowseFilters(filters) }
+    }
+
+    ThemeCollectionsSheet {
+      id: collectionsSheet
+
+      anchors.fill: parent
+      background: root.dimColor
+      foreground: root.foreground
+      scrim: Util.alpha(root.dimColor, 0.88)
+      accent: Color.accent
+      collectionsState: themeCollections.collectionsState
+      onCanceled: Qt.callLater(root.focusPicker)
+      onMembershipsApplied: function(rows) { themeCollections.applyMemberships(rows) }
+      onCreated: function(name) {
+        const error = themeCollections.createCollection(name)
+        if (error) root.showStatus(error)
+      }
+      onRenamed: function(name) {
+        const error = themeCollections.renameSelectedCollection(name)
+        if (error) root.showStatus(error)
+      }
+      onDeleteConfirmed: themeCollections.deleteSelectedCollection()
     }
   }
 }

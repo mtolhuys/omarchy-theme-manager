@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.8.0 - 2026-09-21
+
+- Star installed themes with `Ctrl+D`, filter to starred themes with
+  `Ctrl+Shift+D`, and group themes into named collections: `Ctrl+M` edits the
+  highlighted theme's memberships, `Ctrl+Shift+N` creates a collection with it,
+  `Ctrl+R` renames the selected collection, and `Delete` inside that sheet
+  removes the collection. Inside Favorites or a collection, `Delete` removes the
+  theme from that list only; everywhere else it keeps the uninstall confirmation.
+- Switch the theme picker between the carousel and a grouped grid with `Ctrl+G`
+  or the footer **Grid** chip: Favorites, Omarchy defaults, Installed, then your
+  collections, rendered on the existing 17-delegate pool with at most 16 cells
+  and four section titles on screen. An **ACTIVE** badge marks the applied theme
+  apart from the highlighted card, and the installed-theme search also matches
+  collection names without a new index.
+- Keep favorites and collections in `~/.config/omarchy/theme-collections.json`,
+  written through the same atomic `FileView` block as the sticky memory file.
+  Missing themes stay in the file and reappear when reinstalled; an unreadable
+  file is copied to `theme-collections.json.bak` and treated as empty. Nothing is
+  written until the first star or collection, and the capability set is unchanged
+  from 0.7.1: local files only, no helper process, no network.
+- Credit ejuro's Extended Theme Picker for the collections feature set,
+  reimplemented here on the picker's bounded delegate pool.
+
 ## 0.7.1 - 2026-09-21
 
 - Check ownership and permissions of every directory between `HOME` and the

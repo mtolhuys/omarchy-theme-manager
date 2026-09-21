@@ -4,6 +4,68 @@
 # activation, UI interaction, downloads, and lifecycle mutations run only in
 # the disposable Omarchy plugin lab guest.
 
+# Manual visual pass for 0.8.0 (favorites, collections, grid). The automated
+# steps below never open the grid or a collections sheet, so run this by hand
+# on a guest with the release candidate installed and enabled, and record the
+# outcome in the issue update.
+#
+#   Preconditions
+#   - omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeIdentity ''
+#     prints 0.8.0, and ~/.config/omarchy/theme-collections.json does not exist.
+#   - At least one user-installed theme beside the stock ones, with the applied
+#     theme visible in the carousel.
+#
+#   Carousel (Super+Shift+Ctrl+Space)
+#   1. The applied theme's card carries an ACTIVE pill at its bottom-left corner
+#      even while another card is highlighted; the highlight border stays on the
+#      highlighted card only.
+#   2. Ctrl+D on the highlighted theme toasts "Starred", draws a star at the
+#      card's top-right, and creates theme-collections.json holding exactly
+#      {"version":1,"favorites":[<id>],"collections":[]}; runtimeState reports
+#      themeFavoriteCount 1.
+#   3. Ctrl+Shift+D narrows the carousel to starred themes and shows the
+#      "Starred themes only" hint; Ctrl+Shift+D again restores every theme. With
+#      no stars the toggle only toasts "No starred themes yet".
+#   4. Delete on a theme still opens the uninstall confirmation; Escape cancels.
+#
+#   Grid (Ctrl+G or the footer Grid chip)
+#   5. Sections read Favorites, Omarchy defaults, Installed in that order, each
+#      with a count on the right; every card has a name caption, the applied
+#      theme its ACTIVE pill at the top-left, starred themes a star. Slices,
+#      skew and carousel motion are gone; nothing renders outside the card.
+#   6. Left/Right/Tab walk cards across section boundaries; Up/Down keep the
+#      column and stop at the first and last row; the footer label follows the
+#      highlight; Enter applies the highlighted theme as in the carousel.
+#   7. Ctrl+Shift+N, type Work, Enter: a Work section appears last containing
+#      the highlighted theme, the highlight moves into it, and the hint line
+#      ends with "Delete removes from Work"; runtimeState reports
+#      themeCollection "c1" and themeCollectionCount 1.
+#   8. Ctrl+M lists Favorites then Work with filled/empty marks; Space toggles,
+#      Up/Down move, Enter saves, Escape cancels without writing.
+#   9. Delete inside Work removes the theme from Work only (toast, no dialog);
+#      the emptied section disappears and the highlight lands on the same theme
+#      elsewhere. Delete inside Favorites unstars. Delete inside Omarchy defaults
+#      or Installed opens the uninstall confirmation.
+#  10. Ctrl+R on a Work card opens the rename sheet prefilled; a blank or
+#      duplicate name shows the reason and Enter does nothing. Delete inside the
+#      sheet turns it into the red "Delete Work?" state; Escape keeps the
+#      collection, Enter removes it. Ctrl+R outside a user collection only toasts
+#      "Highlight a collection in the grid first".
+#  11. Typing wo keeps only themes whose name or collection matches; Escape
+#      clears the search and every section returns.
+#  12. Ctrl+G returns to the carousel on the same highlighted theme; reopening
+#      the picker keeps grid mode for the shell session and resets favorites-only.
+#
+#   Storage
+#  13. Uninstall a starred theme: its id stays in theme-collections.json while
+#      the card leaves Favorites; reinstalling it brings the star back.
+#  14. Write "{ not json" over theme-collections.json and run
+#      omarchy-shell shell rescanPlugins: theme-collections.json.bak holds the
+#      broken text, runtimeState reports themeFavoriteCount 0, and the next
+#      Ctrl+D rewrites the main file as valid JSON.
+#  15. Remove both files, reopen the picker, browse, search and apply a theme
+#      without starring anything: no theme-collections.json appears.
+
 omarchy_host_test() {
   local initial_thumb_count install_source install_source_q plugin_root version
   plugin_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)

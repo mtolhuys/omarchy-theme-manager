@@ -24,6 +24,13 @@
 - **Sticky per-theme memory** — wallpaper and icon overrides persist in
   `~/.config/omarchy/theme-manager-memory.json` and restore after theme switches
   (including native `omarchy-theme-set`).
+- **Favorites and collections** — star installed themes (`Ctrl+D`), group them
+  into named collections (`Ctrl+M` / `Ctrl+Shift+N` / `Ctrl+R`), and switch the
+  theme picker between the carousel and a grouped grid (`Ctrl+G`) with
+  Favorites, Omarchy defaults, Installed, and your collections as sections. An
+  **ACTIVE** badge marks the applied theme apart from the highlighted card, and
+  search also matches collection names. Everything lives in
+  `~/.config/omarchy/theme-collections.json`; nothing is written until you use it.
 - **Icons mode** — `Ctrl+I` opens a live-preview grid of installed icon themes;
   the footer Icons chip shows three previews for the _highlighted_ theme
   (sticky memory or package default). **Browse icons** pulls Full Icon Themes
@@ -76,6 +83,13 @@ Open the Omarchy theme switcher (`Super+Shift+Ctrl+Space`).
 - Footer: **Wallpapers** on the left; **Browse themes** + Icons on the right.
 - Type to search; arrows to navigate; `Enter` to install (with confirmation).
 - Uninstall non-active themes with **Uninstall** / `Delete`.
+- **Grid** / `Ctrl+G` shows Favorites, Omarchy defaults, Installed, and your
+  collections as sections; `↑↓←→` move between cards and sections. Inside
+  Favorites or a collection, `Delete` removes the theme from that list only.
+  The grid stays on until you switch back or the shell restarts.
+- `Ctrl+M` edits which collections the highlighted theme belongs to;
+  `Ctrl+Shift+N` creates a collection with it; `Ctrl+R` renames the selected
+  collection (press `Delete` inside that sheet to delete the collection).
 - Catalog metadata caches for six hours — see [CATALOG.md](CATALOG.md).
 
 ### Wallpaper picker
@@ -105,10 +119,15 @@ Open from any picker footer Icons chip or `Ctrl+I`.
 | `M`            | Actions menu (local wallpapers)         |
 | `Ctrl+I`       | Icons mode                              |
 | `Ctrl+F`       | Filters (catalog, wallpapers, or icons) |
-| `Ctrl+D`       | Toggle wallpaper favorite               |
+| `Ctrl+D`       | Toggle favorite (wallpaper or theme)    |
 | `Ctrl+Shift+D` | Favorites-only filter                   |
+| `Ctrl+G`       | Theme carousel ⇄ grouped grid           |
+| `Ctrl+M`       | Edit the theme's collections            |
+| `Ctrl+Shift+N` | New collection with the theme           |
+| `Ctrl+R`       | Rename the selected collection          |
+| `↑` / `↓`      | Move between grid rows and sections     |
 | `Ctrl+N`       | Load more (wallpapers / Browse icons)   |
-| `Delete`       | Uninstall theme (theme picker)          |
+| `Delete`       | Remove from collection, else uninstall  |
 | `Escape`       | Clear search / back / close             |
 
 Bare letter shortcuts stay off while filter typing is active.
@@ -217,7 +236,8 @@ omarchy plugin remove io.github.mtolhuys.theme-manager
 
 Removing restores the built-in picker. Installed themes and downloaded
 wallpapers stay. Delete `~/.config/omarchy/wallpaper-command-center.json` to
-clear saved wallpaper favorites, and
+clear saved wallpaper favorites, `~/.config/omarchy/theme-collections.json` for
+theme favorites and collections, and
 `~/.config/omarchy/theme-manager-memory.json` for sticky memory.
 
 ## Credits
