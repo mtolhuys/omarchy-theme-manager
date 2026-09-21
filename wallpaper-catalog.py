@@ -14,11 +14,13 @@ from pathlib import Path
 import re
 import secrets
 import shutil
+import stat
 import struct
 import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -67,38 +69,109 @@ class CatalogError(RuntimeError):
     pass
 
 
-def cache_root() -> Path:
-    value = os.environ.get("XDG_CACHE_HOME")
-    return Path(value) if value and os.path.isabs(value) else Path.home() / ".cache"
+def fail(message: str):
+    raise CatalogError(message)
 
 
-def data_root() -> Path:
-    value = os.environ.get("XDG_DATA_HOME")
-    return Path(value) if value and os.path.isabs(value) else Path.home() / ".local/share"
+def verify_owned_directory(fd, label):
+    info = os.fstat(fd)
+    if not stat.S_ISDIR(info.st_mode):
+        fail(f"{label} is not a directory")
+    if info.st_uid != os.getuid():
+        fail(f"{label} is not owned by the current user")
+    if info.st_mode & 0o022:
+        fail(f"{label} is writable by another user")
 
 
-def plugin_cache_dir(name: str) -> Path:
-    return secure_directory(cache_root() / "omarchy-theme-manager" / name)
+def open_owned_directory(path, label):
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    fd = os.open(path, flags)
+    verify_owned_directory(fd, label)
+    return fd
 
 
-def wallpaper_dir() -> Path:
-    return secure_directory(data_root() / "omarchy-theme-manager" / "wallpapers")
-
-
-def secure_directory(path: Path) -> Path:
-    path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    info = path.lstat()
-    if path.is_symlink() or not path.is_dir() or info.st_uid != os.getuid():
-        raise CatalogError(f"unsafe catalog directory: {path}")
-    os.chmod(path, 0o700)
-    return path
-
-
-def atomic_write(directory: Path, name: str, data: bytes, mode: int = 0o600) -> Path:
-    directory = secure_directory(directory)
-    dir_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    temporary = f".{name}.{secrets.token_hex(8)}.tmp"
+def open_or_create_child(parent_fd, name, label):
     try:
+        os.mkdir(name, mode=0o700, dir_fd=parent_fd)
+    except FileExistsError:
+        pass
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    fd = os.open(name, flags, dir_fd=parent_fd)
+    verify_owned_directory(fd, label)
+    return fd
+
+
+def home_paths(variable: str, default: str):
+    """The normalized HOME and the directory named by variable, which must be inside HOME."""
+    home = os.environ.get("HOME", "")
+    target = os.environ.get(variable, os.path.join(home, default))
+    if not home or not os.path.isabs(home) or not os.path.isabs(target):
+        fail(f"HOME and {variable} must be absolute")
+    home_normal = os.path.normpath(home)
+    target_normal = os.path.normpath(target)
+    if os.path.commonpath([home_normal, target_normal]) != home_normal:
+        fail(f"{variable} must be inside HOME")
+    return home_normal, target_normal
+
+
+def path_components(home_normal: str, target_normal: str):
+    relative = os.path.relpath(target_normal, home_normal)
+    if relative == ".":
+        return []
+    components = relative.split(os.sep)
+    if any(component in {"", ".", ".."} for component in components):
+        fail("Invalid plugin directory")
+    return components
+
+
+@contextmanager
+def owned_directory(variable: str, default: str, label: str, names: tuple[str, ...]):
+    """Open HOME, every component of the XDG directory and every plugin name below it.
+
+    Each descriptor is opened no-follow relative to its parent and owner-checked; the
+    last one is yielded and all of them are closed afterwards.
+    """
+    home_normal, target_normal = home_paths(variable, default)
+    directory_fds = []
+    try:
+        directory_fds.append(open_owned_directory(home_normal, "HOME"))
+        for component in path_components(home_normal, target_normal):
+            directory_fds.append(open_or_create_child(directory_fds[-1], component, f"{variable} directory"))
+        for name in names:
+            directory_fds.append(open_or_create_child(directory_fds[-1], name, label))
+        yield directory_fds[-1]
+    finally:
+        for fd in reversed(directory_fds):
+            os.close(fd)
+
+
+class PluginDirectory:
+    """A plugin directory below HOME whose whole chain is verified before every use."""
+
+    def __init__(self, variable: str, default: str, label: str, *names: str):
+        self.variable = variable
+        self.default = default
+        self.label = label
+        self.names = names
+        with self.open():
+            pass
+        self.path = Path(home_paths(variable, default)[1], *names)
+
+    def open(self):
+        return owned_directory(self.variable, self.default, self.label, self.names)
+
+
+def plugin_cache_dir(name: str) -> PluginDirectory:
+    return PluginDirectory("XDG_CACHE_HOME", ".cache", "wallpaper cache", "omarchy-theme-manager", name)
+
+
+def wallpaper_dir() -> PluginDirectory:
+    return PluginDirectory("XDG_DATA_HOME", ".local/share", "wallpaper directory", "omarchy-theme-manager", "wallpapers")
+
+
+def atomic_write(directory: PluginDirectory, name: str, data: bytes, mode: int = 0o600) -> Path:
+    temporary = f".{name}.{secrets.token_hex(8)}.tmp"
+    with directory.open() as dir_fd:
         file_fd = os.open(
             temporary,
             os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
@@ -117,9 +190,7 @@ def atomic_write(directory: Path, name: str, data: bytes, mode: int = 0o600) -> 
                 pass
             raise
         os.replace(temporary, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
-    finally:
-        os.close(dir_fd)
-    return directory / name
+    return directory.path / name
 
 
 def is_pling_file_host(host: str) -> bool:
@@ -575,7 +646,7 @@ def search_commons(params: dict) -> dict:
 
 def search_cache_path(params: dict) -> Path:
     key = "\n".join(str(params[name]) for name in ("query", "collection", "sorting", "license", "page"))
-    return plugin_cache_dir("wallpaper-search") / (hashlib.sha256(key.encode()).hexdigest() + ".json")
+    return plugin_cache_dir("wallpaper-search").path / (hashlib.sha256(key.encode()).hexdigest() + ".json")
 
 
 def search_page(params: dict) -> dict:
@@ -596,7 +667,7 @@ def search_page(params: dict) -> dict:
             result = search_commons(params)
         else:
             result = search_ocs(params)
-        atomic_write(cache.parent, cache.name, json.dumps(result, separators=(",", ":")).encode())
+        atomic_write(plugin_cache_dir("wallpaper-search"), cache.name, json.dumps(result, separators=(",", ":")).encode())
         return result
     except CatalogError:
         try:
@@ -613,12 +684,12 @@ def image_signature(data: bytes) -> bool:
     return data.startswith(b"\xff\xd8\xff") or data.startswith(b"\x89PNG\r\n\x1a\n") or (data.startswith(b"RIFF") and data[8:12] == b"WEBP")
 
 
-def remote_image(url: str, directory: Path, stem: str, maximum: int) -> Path:
+def remote_image(url: str, directory: PluginDirectory, stem: str, maximum: int) -> Path:
     parsed = urlparse(url)
     extension = Path(parsed.path).suffix.lower()
     if extension not in IMAGE_EXTENSIONS:
         extension = ".jpg"
-    destination = directory / (stem + extension)
+    destination = directory.path / (stem + extension)
     if destination.is_file() and not destination.is_symlink() and destination.stat().st_size > 0:
         return destination
     data = request_bytes(url, maximum)
@@ -638,11 +709,11 @@ def local_thumbnail(item: dict) -> Path:
     if len(parts) != 3 or parts[1] != "backgrounds" or omarchy_id(relative) != item["id"]:
         raise CatalogError("invalid bundled Omarchy wallpaper")
     directory = plugin_cache_dir("wallpaper-thumbs")
-    destination = directory / (item["id"] + ".png")
+    destination = directory.path / (item["id"] + ".png")
     if destination.is_file() and not destination.is_symlink() and destination.stat().st_mtime_ns >= source.stat().st_mtime_ns:
         return destination
     if shutil.which("magick"):
-        temporary = directory / f".{item['id']}.{secrets.token_hex(8)}.png"
+        temporary = directory.path / f".{item['id']}.{secrets.token_hex(8)}.png"
         try:
             completed = subprocess.run(
                 ["magick", str(source), "-auto-orient", "-thumbnail", "960x540>", "-strip", str(temporary)],
@@ -742,23 +813,24 @@ def download_wallpaper(value: str) -> Path:
     if not match:
         raise CatalogError("invalid wallpaper id")
     provider, numeric_id = match.groups()
+    directory = wallpaper_dir()
     if provider == "omarchy":
         items = {item["id"]: item for item in discover_omarchy()}
         item = items.get(value)
         if not item:
             raise CatalogError("bundled Omarchy wallpaper was not found")
         source = Path(item["path"]).resolve(strict=True)
-        destination = wallpaper_dir() / (value + source.suffix.lower())
+        destination = directory.path / (value + source.suffix.lower())
         if not destination.is_file() or destination.is_symlink() or destination.stat().st_size <= 0:
-            atomic_write(destination.parent, destination.name, source.read_bytes())
+            atomic_write(directory, destination.name, source.read_bytes())
     else:
         item = lookup_ocs(numeric_id) if provider == "ocs" else lookup_commons(numeric_id)
-        destination = remote_image(item["path"], wallpaper_dir(), value, MAX_IMAGE_BYTES)
+        destination = remote_image(item["path"], directory, value, MAX_IMAGE_BYTES)
     attribution = {
         "title": item["title"], "sourceURL": item["url"], "author": item["author"],
         "license": item["license"], "licenseURL": item["licenseURL"], "source": item["source"],
     }
-    atomic_write(destination.parent, destination.name + ".attribution.json", (json.dumps(attribution, indent=2) + "\n").encode(), 0o600)
+    atomic_write(directory, destination.name + ".attribution.json", (json.dumps(attribution, indent=2) + "\n").encode(), 0o600)
     return destination
 
 

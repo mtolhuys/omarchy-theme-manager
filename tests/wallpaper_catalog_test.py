@@ -27,6 +27,36 @@ def arguments(**values):
     return argparse.Namespace(**defaults)
 
 
+def home_environment(home, **overrides):
+    """HOME plus XDG cache and data homes inside it, as the helper requires."""
+    values = {
+        "HOME": home,
+        "XDG_CACHE_HOME": os.path.join(home, "cache"),
+        "XDG_DATA_HOME": os.path.join(home, "data"),
+    }
+    values.update(overrides)
+    return values
+
+
+def foreign_owner(path):
+    """An os.fstat replacement that reports one directory as owned by another user."""
+    real_fstat = os.fstat
+
+    def fstat(fd):
+        info = real_fstat(fd)
+        if os.readlink(f"/proc/self/fd/{fd}") == str(path):
+            return os.stat_result((*info[:4], info.st_uid + 1, *info[5:10]))
+        return info
+
+    return fstat
+
+
+PLUGIN_DIRECTORIES = (
+    ("XDG_CACHE_HOME", lambda: catalog.plugin_cache_dir("wallpaper-search")),
+    ("XDG_DATA_HOME", catalog.wallpaper_dir),
+)
+
+
 class WallpaperCatalogTest(unittest.TestCase):
     def test_normalizes_every_supported_filter_without_shell_interpolation(self):
         normalized = catalog.normalize(
@@ -101,7 +131,7 @@ class WallpaperCatalogTest(unittest.TestCase):
     def test_reuses_fresh_remote_search_cache(self):
         with tempfile.TemporaryDirectory() as directory:
             params = catalog.normalize(arguments(collection="community-abstract"))
-            with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": directory}):
+            with mock.patch.dict(os.environ, home_environment(directory)):
                 cache = catalog.search_cache_path(params)
                 cache.write_text(json.dumps({"wallpapers": [], "meta": {"current_page": 1}}))
                 with mock.patch.object(catalog, "search_ocs", side_effect=AssertionError("network used")):
@@ -111,7 +141,7 @@ class WallpaperCatalogTest(unittest.TestCase):
     def test_uses_expired_cache_only_as_an_outage_fallback(self):
         with tempfile.TemporaryDirectory() as directory:
             params = catalog.normalize(arguments(collection="community-dark"))
-            with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": directory}):
+            with mock.patch.dict(os.environ, home_environment(directory)):
                 cache = catalog.search_cache_path(params)
                 cache.write_text(json.dumps({"wallpapers": [], "meta": {"current_page": 1}}))
                 old = time.time() - catalog.SEARCH_CACHE_TTL_SECONDS - 60
@@ -119,6 +149,69 @@ class WallpaperCatalogTest(unittest.TestCase):
                 with mock.patch.object(catalog, "search_ocs", side_effect=catalog.CatalogError("offline")):
                     result = catalog.search_page(params)
         self.assertTrue(result["meta"]["stale"])
+
+    def test_creates_default_cache_and_data_chains_below_home(self):
+        with tempfile.TemporaryDirectory() as home:
+            with mock.patch.dict(os.environ, {"HOME": home}):
+                os.environ.pop("XDG_CACHE_HOME", None)
+                os.environ.pop("XDG_DATA_HOME", None)
+                cache = catalog.plugin_cache_dir("wallpaper-search").path
+                data = catalog.wallpaper_dir().path
+                published = catalog.atomic_write(catalog.wallpaper_dir(), "one.png", b"png")
+            self.assertEqual(cache, Path(home, ".cache", "omarchy-theme-manager", "wallpaper-search"))
+            self.assertEqual(data, Path(home, ".local", "share", "omarchy-theme-manager", "wallpapers"))
+            created = (Path(home, ".cache"), cache.parent, cache, Path(home, ".local"), data.parent.parent, data.parent, data)
+            for directory in created:
+                self.assertEqual(os.lstat(directory).st_mode & 0o777, 0o700, directory)
+            self.assertEqual(published, data / "one.png")
+            self.assertTrue(published.is_file())
+            self.assertEqual(os.lstat(published).st_mode & 0o777, 0o600)
+
+    def test_rejects_a_symlinked_intermediate_component(self):
+        for variable, plugin_directory in PLUGIN_DIRECTORIES:
+            with self.subTest(variable=variable), tempfile.TemporaryDirectory() as home:
+                victim = Path(home, "victim-directory")
+                victim.mkdir(mode=0o700)
+                planted = Path(home, "cache" if variable == "XDG_CACHE_HOME" else "data")
+                planted.symlink_to(victim)
+                with mock.patch.dict(os.environ, home_environment(home)):
+                    with self.assertRaises((catalog.CatalogError, OSError)) as raised:
+                        plugin_directory()
+                self.assertRegex(str(raised.exception), r"Not a directory|symbolic link|Too many levels")
+                self.assertEqual(list(victim.iterdir()), [])
+
+    def test_rejects_a_component_owned_by_another_user(self):
+        for variable, plugin_directory in PLUGIN_DIRECTORIES:
+            with self.subTest(variable=variable), tempfile.TemporaryDirectory() as home:
+                component = Path(home, "cache" if variable == "XDG_CACHE_HOME" else "data")
+                component.mkdir(mode=0o700)
+                with mock.patch.dict(os.environ, home_environment(home)):
+                    with mock.patch.object(os, "fstat", foreign_owner(component)):
+                        with self.assertRaises(catalog.CatalogError) as raised:
+                            plugin_directory()
+                self.assertEqual(str(raised.exception), f"{variable} directory is not owned by the current user")
+                self.assertEqual(list(component.iterdir()), [])
+
+    def test_rejects_an_xdg_directory_outside_home(self):
+        for variable, plugin_directory in PLUGIN_DIRECTORIES:
+            with self.subTest(variable=variable), tempfile.TemporaryDirectory() as root:
+                home = Path(root, "home")
+                home.mkdir(mode=0o700)
+                outside = Path(root, "elsewhere")
+                with mock.patch.dict(os.environ, home_environment(str(home), **{variable: str(outside)})):
+                    with self.assertRaises(catalog.CatalogError) as raised:
+                        plugin_directory()
+                self.assertEqual(str(raised.exception), f"{variable} must be inside HOME")
+                self.assertFalse(outside.exists())
+
+    def test_rejects_a_relative_xdg_value(self):
+        for variable, plugin_directory in PLUGIN_DIRECTORIES:
+            with self.subTest(variable=variable), tempfile.TemporaryDirectory() as home:
+                with mock.patch.dict(os.environ, home_environment(home, **{variable: "cache"})):
+                    with self.assertRaises(catalog.CatalogError) as raised:
+                        plugin_directory()
+                self.assertEqual(str(raised.exception), f"HOME and {variable} must be absolute")
+                self.assertEqual(sorted(os.listdir(home)), [])
 
     def test_image_signature_rejects_html_error_pages(self):
         self.assertTrue(catalog.image_signature(b"\xff\xd8\xffimage"))

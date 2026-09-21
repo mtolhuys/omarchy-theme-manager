@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.1 - 2026-09-21
+
+- Check ownership and permissions of every directory between `HOME` and the
+  open-wallpaper catalog's cache and data locations, opening each component
+  without following symlinks, matching the theme catalog cache and the
+  wallpaper publisher; a relative `XDG_CACHE_HOME` or `XDG_DATA_HOME`, or one
+  outside `HOME`, is now refused instead of silently falling back, as the theme
+  catalog cache already does.
+
 ## 0.7.0 - 2026-09-20
 
 - Replace Wallhaven browsing with a free open-wallpaper catalog: desktop-oriented

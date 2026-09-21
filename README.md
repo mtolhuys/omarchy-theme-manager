@@ -178,8 +178,9 @@ stops at the configured limit and the message says so explicitly.
 
 Wallpapers: only the bundled Python helper talks to strict OpenDesktop and
 Wikimedia host allowlists; responses and downloads are size-capped, ids and image
-signatures are validated, cache directories are owner-checked/no-follow, and
-publication uses atomic replacement. Downloads retain source/license attribution.
+signatures are validated, every directory from `HOME` to the cache and data
+locations is owner-checked/no-follow, and publication uses atomic replacement.
+Downloads retain source/license attribution.
 
 Icon packs: only the `icons-browse.sh` helper talks to
 `api.gnome-look.org` OCS; downloads are size-capped, extracted with path-traversal
