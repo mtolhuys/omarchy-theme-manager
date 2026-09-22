@@ -10,9 +10,10 @@
   theme from that list only; everywhere else it keeps the uninstall confirmation.
 - Switch the theme picker between the carousel and a grouped grid with `Ctrl+G`
   or the footer **Grid** chip: Favorites, Omarchy defaults, Installed, then your
-  collections, rendered on the existing 17-delegate pool with at most 16 cells
-  and four section titles on screen. The chosen layout is remembered across
-  shell restarts. An **ACTIVE** badge marks the applied theme apart from the
+  collections, scrolled with the arrow keys or the mouse wheel and rendered on
+  the existing 17-delegate pool, which holds at most 16 cells and four section
+  titles on screen at any width or scroll offset. The chosen layout is
+  remembered across shell restarts. An **ACTIVE** badge marks the applied theme apart from the
   highlighted card, and the installed-theme search also matches collection names
   without a new index.
 - Give every surface the picker paints text on a minimum opacity, so the footer

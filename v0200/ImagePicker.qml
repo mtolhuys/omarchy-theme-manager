@@ -1331,6 +1331,7 @@ Item {
     if (!themeCollectionsActive || !themeManager.selectedThemeName) return
     collectionsSheet.openMemberships(
       themeCollections.themeLabel(themeManager.selectedThemeName),
+      themeManager.selectedThemeName,
       themeCollections.membershipRows())
   }
 
@@ -2764,6 +2765,13 @@ Item {
         // clamps to a narrower screen. The grid is centred on the card, so it
         // starts from the middle of that overhang, and it sits in the middle
         // vertically whenever it is shorter than the viewport.
+        // The grid scrolls past the viewport, so it takes the wheel; the
+        // carousel is a ring and does not.
+        WheelHandler {
+          enabled: root.themeGridActive
+          onWheel: function(event) { themeCollections.scrollGrid(event.angleDelta.y) }
+        }
+
         readonly property real gridOriginX: (width - themeCollections.gridWidth) / 2
         readonly property real gridOriginY: Math.max(
           0,
@@ -4307,7 +4315,9 @@ Item {
       accent: Color.accent
       collectionsState: themeCollections.collectionsState
       onCanceled: Qt.callLater(root.focusPicker)
-      onMembershipsApplied: function(rows) { themeCollections.applyMemberships(rows) }
+      onMembershipsApplied: function(themeId, rows) {
+        themeCollections.applyMemberships(themeId, rows)
+      }
       onCreated: function(name) {
         const error = themeCollections.createCollection(name)
         if (error) root.showStatus(error)

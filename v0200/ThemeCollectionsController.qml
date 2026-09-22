@@ -70,7 +70,6 @@ Item {
     collectionsState,
     selectedCollectionId)
   readonly property bool canRename: !!selectedCollection
-  readonly property bool selectedFavorite: ThemeCollectionsModel.isFavorite(collectionsState, selectedThemeName)
   readonly property int favoriteCount: ThemeCollectionsModel.favoriteCount(collectionsState)
   readonly property int collectionCount: collectionsState.collections.length
   readonly property string backupFileName: "theme-collections.json.bak"
@@ -209,6 +208,19 @@ Item {
     setCursor(ThemeCollectionsModel.moveCursor(gridModel, gridCursor, dx, dy))
   }
 
+  // The wheel moves the view only: selection drives the footer label and the
+  // icon preview, so scrolling must not change it. The next arrow key brings
+  // the cursor back into view through scrollTopForCursor.
+  function scrollGrid(angleDelta) {
+    if (!gridActive) return
+    const step = geometry.cellHeight + geometry.gap
+    scrollTop = ThemeCollectionsModel.scrollBy(
+      gridModel,
+      scrollTop,
+      (Number(angleDelta) || 0) / 120 * step,
+      geometry.viewportHeight)
+  }
+
   function selectGridPosition(position) {
     if (!gridActive) return
     const cell = ThemeCollectionsModel.cellAt(gridModel, position)
@@ -260,8 +272,10 @@ Item {
     return ThemeCollectionsModel.membershipRows(collectionsState, selectedThemeId())
   }
 
-  function applyMemberships(rows) {
-    const id = selectedThemeId()
+  // The sheet passes back the theme it was opened for, so a selection that
+  // moved while it was open cannot redirect the edit onto another theme.
+  function applyMemberships(themeId, rows) {
+    const id = ThemeCollectionsModel.safeThemeId(themeId)
     if (!ready() || !id) return
     collectionsState = ThemeCollectionsModel.applyMemberships(collectionsState, id, rows)
     save()

@@ -12,6 +12,7 @@ Item {
   // "memberships" | "create" | "rename"
   property string mode: ""
   property string themeLabel: ""
+  property string themeId: ""
   property string collectionName: ""
   property string excludeId: ""
   property var collectionsState: ThemeCollectionsModel.emptyState()
@@ -50,14 +51,15 @@ Item {
   }
 
   signal canceled()
-  signal membershipsApplied(var rows)
+  signal membershipsApplied(string themeId, var rows)
   signal created(string name)
   signal renamed(string name)
   signal deleteConfirmed()
 
-  function openMemberships(label, rows) {
+  function openMemberships(label, id, rows) {
     mode = "memberships"
     themeLabel = String(label || "")
+    themeId = String(id || "")
     draftRows = Array.isArray(rows) ? rows.map(function(row) {
       return { id: row.id, name: row.name, member: row.member === true }
     }) : []
@@ -101,7 +103,7 @@ Item {
   function apply() {
     if (mode === "memberships") {
       opened = false
-      membershipsApplied(draftRows)
+      membershipsApplied(themeId, draftRows)
       return
     }
     if (confirmingDelete) {

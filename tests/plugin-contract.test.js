@@ -205,6 +205,14 @@ test("organises installed themes locally through the existing state writer", asy
   assert.match(picker, /gridCell \? carousel\.gridOriginY \+ gridCell\.y : 0/)
   assert.doesNotMatch(picker, /width: carousel\.width - 2 \* themeCollections/)
 
+  // A grid taller than the viewport has to take the wheel, and the wheel makes
+  // scrollTop free, which is what the pool bound in the model has to survive.
+  assert.match(picker, /WheelHandler \{\s+enabled: root\.themeGridActive/)
+  assert.match(picker, /themeCollections\.scrollGrid\(event\.angleDelta\.y\)/)
+  assert.match(controller, /ThemeCollectionsModel\.scrollBy\(/)
+  assert.match(model, /const gridMinCellWidth = 254/)
+  assert.match(model, /if \(filled >= size\) break/)
+
   // Search extends the existing installed-theme match to collection names.
   assert.match(controller, /ImagePickerModel\.textMatches/)
   assert.match(
@@ -266,6 +274,24 @@ test("keeps every picker backdrop above a readable contrast floor", async () => 
   assert.equal(
     (picker.match(/bordered: true/g) || []).length,
     (picker.match(/background: root\.chromeFill/g) || []).length
+  )
+})
+
+test("documents the release in the changelog, readme and submission notes", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const changelog = await read("CHANGELOG.md")
+  const readme = await read("README.md")
+  const verify = await read("MARKETPLACE-VERIFY.md")
+
+  const heading = new RegExp("^## " + manifest.version.replace(/\./g, "\\.") + " - ", "m")
+  assert.match(changelog, heading, "the changelog needs an entry for this version")
+  assert.match(readme, /theme-collections\.json/)
+  assert.match(readme, /`Ctrl\+G`/)
+  // The submission body is written per release; a stale one is a stale review.
+  assert.match(
+    verify,
+    new RegExp("(^|\\s)" + manifest.version.replace(/\./g, "\\.") + "(\\s|$)", "m"),
+    "MARKETPLACE-VERIFY.md still describes an older version"
   )
 })
 

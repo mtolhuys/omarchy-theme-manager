@@ -336,7 +336,11 @@ const sections = (images, indices, state, options) => {
 const gridGap = 12
 const gridHeaderHeight = 28
 const gridMaxColumns = 4
-const gridMinCellWidth = 200
+// A cell narrower than this is short enough that five rows of four can meet a
+// 475px viewport at once, which is more cells than the delegate pool has. The
+// floor keeps four columns off the screens where that happens: they get three
+// wider columns instead. gridSlots asserts the result.
+const gridMinCellWidth = 254
 const gridMaxCellWidth = 260
 
 const gridGeometry = (width, height) => {
@@ -443,11 +447,32 @@ const gridSlots = (model, scrollTop, viewportHeight, poolSize) => {
   const size = Math.max(1, Math.floor(Number(poolSize) || 1))
   const slots = new Array(size).fill(null)
   const top = Math.max(0, Number(scrollTop) || 0)
+  let filled = 0
   for (const cell of arrayValue(model && model.cells)) {
     if (!rowIntersects(cell, top, viewportHeight)) continue
+    // Visible cells are one contiguous run, so position % size is injective
+    // while the run is shorter than the pool. Stopping keeps it that way in a
+    // degenerate frame (a zero width before the picker is laid out) rather
+    // than overwriting a slot and dropping a card that is on screen.
+    if (filled >= size) break
     slots[cell.position % size] = Object.assign({}, cell, { y: cell.y - top })
+    filled += 1
   }
   return slots
+}
+
+// The visible run at an arbitrary offset, which is what the wheel produces.
+const visibleCellCount = (model, scrollTop, viewportHeight) => {
+  const top = Math.max(0, Number(scrollTop) || 0)
+  return arrayValue(model && model.cells).filter((cell) => rowIntersects(cell, top, viewportHeight))
+    .length
+}
+
+// Where the wheel may land, clamped to the scrollable range.
+const scrollBy = (model, scrollTop, delta, viewportHeight) => {
+  const viewport = nonNegative(viewportHeight)
+  const maxTop = Math.max(0, nonNegative(model && model.height) - viewport)
+  return Math.min(Math.max(0, nonNegative(scrollTop) - (Number(delta) || 0)), maxTop)
 }
 
 const gridHeaders = (model, scrollTop, viewportHeight) => {
@@ -501,7 +526,6 @@ if (typeof module !== "undefined") {
     maxCollections,
     maxNameLength,
     safeThemeId,
-    safeCollectionId,
     normalizeName,
     emptyState,
     safeView,
@@ -532,6 +556,8 @@ if (typeof module !== "undefined") {
     gridModel,
     scrollTopForCursor,
     gridSlots,
+    visibleCellCount,
+    scrollBy,
     gridHeaders,
     cellAt,
     cellPositionForImage,

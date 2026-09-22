@@ -37,6 +37,9 @@
 #      right of the last, and each section's count sits at the right edge of the
 #      last column, not out at the card edge. Check on a screen narrower than
 #      ~1900px too, where the card clamps and the carousel overhangs it.
+#   5c. With more themes than fit, the mouse wheel scrolls the grid and the
+#      highlight stays on its card; the next arrow key brings it back into view.
+#      No card is ever blank or duplicated while scrolling.
 #   6. Left/Right/Tab walk cards across section boundaries; Up/Down keep the
 #      column and stop at the first and last row; the footer label follows the
 #      highlight; Enter applies the highlighted theme as in the carousel.

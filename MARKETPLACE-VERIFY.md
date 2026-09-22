@@ -23,6 +23,37 @@ the release has been pushed.
 
 Maintainer notes (not required by form):
 
+0.8.0 — Organise your themes (this submission):
+
+- Adds local theme organisation to the existing picker: star installed themes,
+  group them into user-named collections, and switch the installed-theme view
+  between the carousel and a grouped grid. Everything is local to the machine.
+- No new capability, host, process, timer or permission. The feature reads the
+  installed-theme inventory the picker already builds and keeps one JSON file,
+  `~/.config/omarchy/theme-collections.json`, written through the same atomic
+  `FileView` used by the existing sticky-memory file. No helper runs for it.
+- `omakit verify` reports no findings. The only capability is still `installer`
+  (`install-theme.py`, `install-wallpaper.sh`), unchanged from 0.7.1.
+- `omakit inspect` observes the same 497 processes, 77 hosts and 8 timers as
+  0.7.1. Writes move 45 to 47: the state file and the backup beside it.
+- Grid rendering reuses the picker's existing 17-delegate pool rather than
+  adding delegates per theme. At most 16 cells and four section titles are on
+  screen at any width or scroll offset; a test sweeps widths 320-2400px and
+  every scroll offset to hold that bound.
+- Themes may set `image-picker.scrim-alpha` as low as 0.5, which left picker
+  text at 1.9:1 contrast against a bright window behind the overlay. Every
+  surface the picker paints text on now has a minimum opacity, lifting that to
+  7.8:1 while keeping each theme's own color and honouring a higher alpha where
+  a theme sets one. This changes appearance in the wallpaper, icons and catalog
+  modes as well as the theme picker.
+- Themes missing from disk stay in the file and reappear when reinstalled; an
+  unreadable file is copied to `theme-collections.json.bak` and treated as
+  empty. Nothing is written until the first star, collection or layout switch.
+- Collections follow the feature set of the community Extended Theme Picker,
+  reimplemented on this picker's bounded delegate pool; no code was taken.
+
+Standing notes:
+
 - Category already Appearance; tag quickshell
 - Version 0.7.0 replaces Wallhaven/Aether with a bundled, stdlib-only Python
   catalog helper backed by installed Omarchy art, explicitly licensed

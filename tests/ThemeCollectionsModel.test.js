@@ -396,6 +396,70 @@ test("scrolls the grid so the cursor row and its header stay visible", () => {
   assert.equal(new Set(slots.map((cell) => cell.position % 17)).size, slots.length)
 })
 
+test("keeps the visible run inside the delegate pool at any scroll offset", () => {
+  const POOL = 17
+  const viewport = 475
+  const sections = [
+    { id: "a", name: "a", kind: "collection", indices: Array.from({ length: 200 }, (_, i) => i) }
+  ]
+  let worst = 0
+
+  // The wheel moves scrollTop freely, so the bound has to hold at every
+  // offset, not only the row-aligned ones the cursor produces.
+  for (let width = 320; width <= 2400; width += 8) {
+    const geometry = ThemeCollectionsModel.gridGeometry(width, viewport)
+    const model = ThemeCollectionsModel.gridModel(sections, geometry)
+    const maxTop = Math.max(0, model.height - viewport)
+    for (let top = 0; top <= maxTop; top += 7) {
+      const visible = ThemeCollectionsModel.visibleCellCount(model, top, viewport)
+      worst = Math.max(worst, visible)
+      assert.ok(visible <= POOL, visible + " cells visible at width " + width + " top " + top)
+
+      const slots = ThemeCollectionsModel.gridSlots(model, top, viewport, POOL).filter(Boolean)
+      assert.equal(
+        new Set(slots.map((cell) => cell.position)).size,
+        slots.length,
+        "slots collide at width " + width + " top " + top
+      )
+    }
+  }
+  assert.ok(worst >= 12, "the sweep has to actually fill the pool, saw " + worst)
+})
+
+test("scrolls the grid by the wheel within the scrollable range", () => {
+  const viewport = 475
+  const geometry = ThemeCollectionsModel.gridGeometry(1200, viewport)
+  const sections = [
+    { id: "a", name: "a", kind: "collection", indices: Array.from({ length: 40 }, (_, i) => i) }
+  ]
+  const model = ThemeCollectionsModel.gridModel(sections, geometry)
+  const maxTop = model.height - viewport
+  assert.ok(maxTop > 0)
+
+  // A wheel notch is 120 units; the controller passes pixels per notch.
+  assert.equal(
+    ThemeCollectionsModel.scrollBy(model, 0, 158, viewport),
+    0,
+    "cannot scroll above the top"
+  )
+  assert.equal(ThemeCollectionsModel.scrollBy(model, 0, -158, viewport), 158)
+  assert.equal(ThemeCollectionsModel.scrollBy(model, 300, -158, viewport), 458)
+  assert.equal(
+    ThemeCollectionsModel.scrollBy(model, maxTop, -9999, viewport),
+    maxTop,
+    "clamps at the bottom"
+  )
+  assert.equal(ThemeCollectionsModel.scrollBy(model, 158, 158, viewport), 0)
+  assert.equal(ThemeCollectionsModel.scrollBy(model, 0, 0, viewport), 0)
+
+  // A grid shorter than the viewport does not scroll at all.
+  const short = ThemeCollectionsModel.gridModel(
+    [{ id: "a", name: "a", kind: "collection", indices: [0, 1] }],
+    geometry
+  )
+  assert.equal(ThemeCollectionsModel.scrollBy(short, 0, -500, viewport), 0)
+})
+
 test("moves the grid cursor by cell and by column", () => {
   const state = ThemeCollectionsModel.createCollection(ThemeCollectionsModel.emptyState(), "Work", [
     "nord",

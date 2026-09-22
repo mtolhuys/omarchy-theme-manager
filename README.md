@@ -87,7 +87,8 @@ Open the Omarchy theme switcher (`Super+Shift+Ctrl+Space`).
 - **Grid** / `Ctrl+G` shows Favorites, Omarchy defaults, Installed, and your
   collections as sections; `↑↓←→` move between cards and sections. Inside
   Favorites or a collection, `Delete` removes the theme from that list only.
-  Your choice of grid or carousel is remembered across shell restarts.
+  The mouse wheel scrolls the grid. Your choice of grid or carousel is
+  remembered across shell restarts.
 - `Ctrl+M` edits which collections the highlighted theme belongs to;
   `Ctrl+Shift+N` creates a collection with it; `Ctrl+R` renames the selected
   collection (press `Delete` inside that sheet to delete the collection).
