@@ -78,6 +78,41 @@ than an error.
 24 Run sites in QML, none of them a bare `Process`; every one has a deadline
 and a byte cap, and each carries a comment naming what the deadline covers.
 
+## A trap worth writing down: FileView inside a QtObject
+
+The one-time migration was written, reviewed and unit-tested, and it did
+nothing at all. Driving `PluginState` through a real `quickshell` against a
+sandbox HOME showed why: Store correctly reported the private copy `missing`,
+the legacy path was assigned, `reload()` was called — and `onLoaded` never
+fired.
+
+`QtObject` has no default property, so a `FileView` can only be held there as
+`property FileView _legacy: FileView { … }`, and in that position its async
+load never delivers. `blockLoading: true` fixes the load, but it blocks on
+_access_, not on `reload()`, so an `onLoaded` handler still never runs. The
+read has to be taken:
+
+```qml
+_legacy.path = legacyPath
+_legacy.reload()
+_adopt(_legacy.text())
+```
+
+Blocking is the right shape here regardless: one small JSON file, read once
+per plugin start, and the migration settles before anything else looks at the
+state. Every other controller in this tree is an `Item` with a plain
+`FileView` child, which is why none of them hit this.
+
+Nothing in `npm run quality` could have caught it — qmllint is happy, and the
+models it feeds are pure functions with their own tests. Only the live run
+found it. The contract test now pins the shape that works and refuses an
+`onLoaded` handler on that view.
+
+Had it shipped, every upgrading user would have opened 0.9.0 to find their
+theme memory, collections, starred wallpapers and stored filters apparently
+empty. The files were never in danger — the migration only ever reads them —
+but none of it would have been on screen.
+
 ## Found while porting the hook
 
 `hooks/theme-set.d/50-theme-manager-memory` rejected **every** theme name. The
