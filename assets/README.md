@@ -13,9 +13,7 @@ Lab-shot Matte Black marketing frames from the disposable Omarchy Plugin Lab
 - `actions-menu.webp` — Actions hamburger open
 - `icons-mode.webp` — Icons showcase
 - `wallhaven-browse.webp` — open wallpaper catalog (historical filename)
-- `wallpaper-command-center.webp` — earlier favorites capture
 - `safety-confirmation.webp` — install confirmation
-- `showcase-background.webp` — older neutral background
 
 Screenshots are product UI from the disposable guest under Matte Black — not the
 daily host desktop. Distributed under the repository MIT license.
