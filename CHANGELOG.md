@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.0 - 2026-09-21
+## 0.8.0 - 2026-09-22
 
 - Star installed themes with `Ctrl+D`, filter to starred themes with
   `Ctrl+Shift+D`, and group themes into named collections: `Ctrl+M` edits the
