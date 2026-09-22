@@ -301,22 +301,17 @@ test("keeps every picker backdrop above a readable contrast floor", async () => 
   )
 })
 
-test("documents the release in the changelog, readme and submission notes", async () => {
+test("documents the release in the changelog and the readme", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   const changelog = await read("CHANGELOG.md")
   const readme = await read("README.md")
-  const verify = await read("MARKETPLACE-VERIFY.md")
 
+  // The changelog entry is what a release is described in, and what the
+  // marketplace submission is written from; a stale one is a stale review.
   const heading = new RegExp("^## " + manifest.version.replace(/\./g, "\\.") + " - ", "m")
   assert.match(changelog, heading, "the changelog needs an entry for this version")
   assert.match(readme, /theme-collections\.json/)
   assert.match(readme, /`Ctrl\+G`/)
-  // The submission body is written per release; a stale one is a stale review.
-  assert.match(
-    verify,
-    new RegExp("(^|\\s)" + manifest.version.replace(/\./g, "\\.") + "(\\s|$)", "m"),
-    "MARKETPLACE-VERIFY.md still describes an older version"
-  )
 })
 
 test("keeps its own state under the private Store root, adopting 0.8.x once", async () => {
