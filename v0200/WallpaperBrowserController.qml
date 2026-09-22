@@ -1,6 +1,6 @@
 import Quickshell
-import Quickshell.Io
 import QtQuick
+import "../omakit"
 import "WallpaperBrowserModel.js" as WallpaperBrowserModel
 
 Item {
@@ -10,6 +10,9 @@ Item {
   property string commandPath: "wallpaper-catalog"
   property string cacheHome: Quickshell.env("XDG_CACHE_HOME") || (homeDir + "/.cache")
   property string dataHome: Quickshell.env("XDG_DATA_HOME") || (homeDir + "/.local/share")
+  // The closed environment wallpaper-catalog.py runs in: the XDG paths for
+  // its cache and data roots (ImagePicker.qml names them).
+  property var helperEnvironment: ({})
   property int pagesPerRequest: 1
   property string collection: "omarchy"
   property string sorting: "featured"
@@ -18,7 +21,6 @@ Item {
   property int downloadSerial: 0
   readonly property int maxSearchOutputBytes: 4 * 1024 * 1024
   readonly property int maxDownloadOutputBytes: 8 * 1024
-  readonly property int maxErrorOutputBytes: 64 * 1024
   property var queuedRequest: null
   property string activeQuery: ""
   property string activeFilterKey: ""
@@ -86,9 +88,6 @@ Item {
     searchProc.activeFilterKey = request.filterKey
     searchProc.activePage = request.page
     searchProc.activeAppend = request.append
-    searchProc.outputTooLarge = false
-    searchProc.stdoutText = ""
-    searchProc.stderrText = ""
     const command = WallpaperBrowserModel.searchArguments(
       request.query,
       request.page,
@@ -97,7 +96,7 @@ Item {
     )
     command[0] = root.commandPath
     searchProc.command = command
-    searchProc.running = true
+    searchProc.start()
   }
 
   function loadMore() {
@@ -117,15 +116,18 @@ Item {
     errorMessage = ""
     downloadSerial += 1
     downloadProc.activeSerial = downloadSerial
-    downloadProc.outputTooLarge = false
-    downloadProc.stdoutText = ""
-    downloadProc.stderrText = ""
     command[0] = root.commandPath
     downloadProc.command = command
-    downloadProc.running = true
+    downloadProc.start()
   }
 
-  Process {
+  // wallpaper-catalog.py --wallpaper-thumbs fetches one listing page and its
+  // thumbnails, three at a time, each under the provider's own 30 s socket
+  // timeout; 120 s covers that on a slow link. Run counts each stream while
+  // reading and ends the run over the cap, which is the browser's own 4 MiB
+  // search bound (maxSearchOutputBytes); keepBytes matches so the JSON the
+  // parser needs survives the trip.
+  Run {
     id: searchProc
 
     property int activeSerial: 0
@@ -133,68 +135,41 @@ Item {
     property string activeFilterKey: ""
     property int activePage: 1
     property bool activeAppend: false
-    property bool outputTooLarge: false
-    property string stdoutText: ""
-    property string stderrText: ""
+    environment: root.helperEnvironment
+    deadlineMs: 120000
+    maxBytes: root.maxSearchOutputBytes
+    keepBytes: root.maxSearchOutputBytes
 
-    stdout: StdioCollector {
-      waitForEnd: true
-      onDataChanged: {
-        if (!searchProc.outputTooLarge
-            && data.length > root.maxSearchOutputBytes) {
-          searchProc.outputTooLarge = true
-          searchProc.signal(9)
-        }
-      }
-      onStreamFinished: {
-        if (!searchProc.outputTooLarge)
-          searchProc.stdoutText = String(text || "")
-      }
-    }
-
-    stderr: StdioCollector {
-      waitForEnd: true
-      onDataChanged: {
-        if (!searchProc.outputTooLarge
-            && data.length > root.maxErrorOutputBytes) {
-          searchProc.outputTooLarge = true
-          searchProc.signal(9)
-        }
-      }
-      onStreamFinished: {
-        if (!searchProc.outputTooLarge)
-          searchProc.stderrText = String(text || "")
-      }
-    }
-
-    onExited: function(exitCode) {
+    onFinished: function(result) {
       const isCurrent = activeSerial === root.requestSerial
 
-      if (isCurrent && outputTooLarge) {
+      if (isCurrent && result.state === "overflow") {
         root.errorMessage = "The wallpaper catalog returned too much output"
-      } else if (isCurrent && exitCode === 0) {
-        const result = WallpaperBrowserModel.parseSearchResponse(
-          stdoutText,
+      } else if (isCurrent && result.state === "ok") {
+        const parsed = WallpaperBrowserModel.parseSearchResponse(
+          result.stdout,
           root.cacheHome
         )
-        if (result.error) {
-          root.errorMessage = result.error
+        if (parsed.error) {
+          root.errorMessage = parsed.error
         } else {
           root.activeQuery = activeQuery
           root.activeFilterKey = activeFilterKey
-          root.currentPage = result.meta.currentPage
-          root.lastPage = result.meta.lastPage
-          root.totalResults = result.meta.total
-          root.staleResults = result.meta.stale === true
+          root.currentPage = parsed.meta.currentPage
+          root.lastPage = parsed.meta.lastPage
+          root.totalResults = parsed.meta.total
+          root.staleResults = parsed.meta.stale === true
           root.nextRawPage = activePage + root.pagesPerRequest
           root.errorMessage = ""
-          root.resultsReady(result.rows, activeAppend)
+          root.resultsReady(parsed.rows, activeAppend)
         }
       } else if (isCurrent) {
         root.errorMessage = WallpaperBrowserModel.processError(
-          stdoutText,
-          stderrText,
-          "Wallpaper search failed. Check the Theme Manager catalog helper."
+          result.stdout,
+          result.stderr,
+          result.state === "timeout"
+            ? "The wallpaper catalog did not answer within two minutes"
+            : "Wallpaper search failed. Check the Theme Manager catalog helper."
         )
       }
 
@@ -203,62 +178,37 @@ Item {
     }
   }
 
-  Process {
+  // wallpaper-catalog.py --wallpaper-download fetches one full-size wallpaper
+  // of up to 64 MiB under the same socket timeout; 180 s covers that, and its
+  // report is one JSON line (maxDownloadOutputBytes).
+  Run {
     id: downloadProc
 
     property int activeSerial: 0
-    property bool outputTooLarge: false
-    property string stdoutText: ""
-    property string stderrText: ""
+    environment: root.helperEnvironment
+    deadlineMs: 180000
+    maxBytes: root.maxDownloadOutputBytes
 
-    stdout: StdioCollector {
-      waitForEnd: true
-      onDataChanged: {
-        if (!downloadProc.outputTooLarge
-            && data.length > root.maxDownloadOutputBytes) {
-          downloadProc.outputTooLarge = true
-          downloadProc.signal(9)
-        }
-      }
-      onStreamFinished: {
-        if (!downloadProc.outputTooLarge)
-          downloadProc.stdoutText = String(text || "")
-      }
-    }
-
-    stderr: StdioCollector {
-      waitForEnd: true
-      onDataChanged: {
-        if (!downloadProc.outputTooLarge
-            && data.length > root.maxErrorOutputBytes) {
-          downloadProc.outputTooLarge = true
-          downloadProc.signal(9)
-        }
-      }
-      onStreamFinished: {
-        if (!downloadProc.outputTooLarge)
-          downloadProc.stderrText = String(text || "")
-      }
-    }
-
-    onExited: function(exitCode) {
+    onFinished: function(result) {
       if (activeSerial !== root.downloadSerial) return
 
-      if (outputTooLarge) {
+      if (result.state === "overflow") {
         root.errorMessage = "The wallpaper catalog returned too much download output"
-      } else if (exitCode === 0) {
-        const result = WallpaperBrowserModel.parseDownloadResponse(
-          stdoutText,
+      } else if (result.state === "ok") {
+        const parsed = WallpaperBrowserModel.parseDownloadResponse(
+          result.stdout,
           root.homeDir,
           root.dataHome
         )
-        if (result.error) root.errorMessage = result.error
-        else root.wallpaperReady(result.path)
+        if (parsed.error) root.errorMessage = parsed.error
+        else root.wallpaperReady(parsed.path)
       } else {
         root.errorMessage = WallpaperBrowserModel.processError(
-          stdoutText,
-          stderrText,
-          "The wallpaper catalog could not download this wallpaper"
+          result.stdout,
+          result.stderr,
+          result.state === "timeout"
+            ? "The wallpaper download did not finish within three minutes"
+            : "The wallpaper catalog could not download this wallpaper"
         )
       }
 

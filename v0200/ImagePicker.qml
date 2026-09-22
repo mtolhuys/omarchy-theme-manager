@@ -2430,6 +2430,7 @@ Item {
   WallpaperBrowserController {
     id: wallhaven
     commandPath: root.pluginScriptPath("wallpaper-catalog.py")
+    helperEnvironment: root.helperEnvironment
     onResultsReady: function(rows, append) { root.acceptWallhavenResults(rows, append) }
     onWallpaperReady: function(path) {
       if (root.wallhavenMode) root.finishSelection(path)
