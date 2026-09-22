@@ -8,6 +8,7 @@ Lab-shot Matte Black marketing frames from the disposable Omarchy Plugin Lab
   top-center (middots; no ALL-CAPS titles / no ACTIONS label)
 - `../preview.webp` — marketplace still (Matte Black themes carousel, bar cropped)
 - `theme-library.webp` — themes carousel with Wallpapers / Browse / Icons
+- `theme-grid.webp` — grouped grid: Favorites, Omarchy defaults, stars (0.8.0)
 - `catalog-browse.webp` — community catalog
 - `wallpaper-picker.webp` — wallpaper picker with live palette
 - `actions-menu.webp` — Actions hamburger open
