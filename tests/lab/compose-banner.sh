@@ -116,7 +116,12 @@ for i in $(seq 0 $((count - 1))); do
   done
 done
 
-mkdir -p "$(dirname "$output")"
+output_dir=$(dirname "$output")
+if [[ ! -d $output_dir ]]; then
+  echo "compose-banner.sh: $output_dir does not exist" >&2
+  exit 1
+fi
+
 "$magick" -loop 0 "${args[@]}" \
   -colors 180 -dither FloydSteinberg \
   -layers OptimizePlus -layers OptimizeTransparency \
