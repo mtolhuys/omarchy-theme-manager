@@ -29,8 +29,9 @@
   theme picker between the carousel and a grouped grid (`Ctrl+G`) with
   Favorites, Omarchy defaults, Installed, and your collections as sections. An
   **ACTIVE** badge marks the applied theme apart from the highlighted card, and
-  search also matches collection names. Everything lives in
-  `~/.config/omarchy/theme-collections.json`; nothing is written until you use it.
+  search also matches collection names. The chosen layout and everything else
+  lives in `~/.config/omarchy/theme-collections.json`; nothing is written until
+  you use it.
 - **Icons mode** — `Ctrl+I` opens a live-preview grid of installed icon themes;
   the footer Icons chip shows three previews for the _highlighted_ theme
   (sticky memory or package default). **Browse icons** pulls Full Icon Themes
@@ -86,7 +87,7 @@ Open the Omarchy theme switcher (`Super+Shift+Ctrl+Space`).
 - **Grid** / `Ctrl+G` shows Favorites, Omarchy defaults, Installed, and your
   collections as sections; `↑↓←→` move between cards and sections. Inside
   Favorites or a collection, `Delete` removes the theme from that list only.
-  The grid stays on until you switch back or the shell restarts.
+  Your choice of grid or carousel is remembered across shell restarts.
 - `Ctrl+M` edits which collections the highlighted theme belongs to;
   `Ctrl+Shift+N` creates a collection with it; `Ctrl+R` renames the selected
   collection (press `Delete` inside that sheet to delete the collection).

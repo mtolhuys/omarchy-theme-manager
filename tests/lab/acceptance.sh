@@ -54,7 +54,24 @@
 #  11. Typing wo keeps only themes whose name or collection matches; Escape
 #      clears the search and every section returns.
 #  12. Ctrl+G returns to the carousel on the same highlighted theme; reopening
-#      the picker keeps grid mode for the shell session and resets favorites-only.
+#      the picker keeps the last layout and resets favorites-only. The layout
+#      also survives omarchy-shell restarting: switch to the grid, restart the
+#      shell, reopen the picker, and it is still the grid; theme-collections.json
+#      reads "view": "grid".
+#
+#   Readability (run on a light theme and again with a white page behind the
+#   overlay, since a theme may set image-picker.scrim-alpha as low as 0.5)
+#  R1. With a maximised white page behind it, every footer control reads as a
+#      filled control, not an outline around the page: Wallpapers, Grid/Carousel,
+#      Browse themes, Icons, Uninstall, and the Actions hamburger in wallpaper
+#      mode. No page text shows through a button interior.
+#  R2. The centred theme name, the hint line, section titles and their counts,
+#      the grid captions and the status toast are all legible against that page.
+#  R3. The uninstall confirmation, the collections sheets and the filter sheets
+#      dim the picker behind them; none of them lets the page show through.
+#  R4. Repeat on a theme whose shell.toml raises image-picker.scrim-alpha above
+#      the floor (or set it to 0.98 by hand): the picker keeps that theme's
+#      heavier wash rather than being pinned to the floor.
 #
 #   Storage
 #  13. Uninstall a starred theme: its id stays in theme-collections.json while
@@ -64,7 +81,9 @@
 #      broken text, runtimeState reports themeFavoriteCount 0, and the next
 #      Ctrl+D rewrites the main file as valid JSON.
 #  15. Remove both files, reopen the picker, browse, search and apply a theme
-#      without starring anything: no theme-collections.json appears.
+#      without starring anything and without pressing Ctrl+G: no
+#      theme-collections.json appears. Pressing Ctrl+G alone does create it,
+#      holding only the remembered view with empty favorites and collections.
 
 omarchy_host_test() {
   local initial_thumb_count install_source install_source_q plugin_root version

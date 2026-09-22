@@ -11,14 +11,23 @@
 - Switch the theme picker between the carousel and a grouped grid with `Ctrl+G`
   or the footer **Grid** chip: Favorites, Omarchy defaults, Installed, then your
   collections, rendered on the existing 17-delegate pool with at most 16 cells
-  and four section titles on screen. An **ACTIVE** badge marks the applied theme
-  apart from the highlighted card, and the installed-theme search also matches
-  collection names without a new index.
-- Keep favorites and collections in `~/.config/omarchy/theme-collections.json`,
-  written through the same atomic `FileView` block as the sticky memory file.
-  Missing themes stay in the file and reappear when reinstalled; an unreadable
-  file is copied to `theme-collections.json.bak` and treated as empty. Nothing is
-  written until the first star or collection, and the capability set is unchanged
+  and four section titles on screen. The chosen layout is remembered across
+  shell restarts. An **ACTIVE** badge marks the applied theme apart from the
+  highlighted card, and the installed-theme search also matches collection names
+  without a new index.
+- Give every surface the picker paints text on a minimum opacity, so the footer
+  controls, labels, hints and card captions stay readable when a theme asks for a
+  thin `image-picker.scrim-alpha` and a bright window sits behind the overlay.
+  Matte Black's own 0.5 wash put body text at 1.9:1 against a white page; the
+  floor lifts that to 7.8:1 while keeping each theme's color and honouring a
+  higher alpha where a theme sets one. Buttons, menus and dialogs carry their own
+  fill instead of the 4%-alpha wash they had at rest.
+- Keep favorites, collections and the chosen layout in
+  `~/.config/omarchy/theme-collections.json`, written through the same atomic
+  `FileView` block as the sticky memory file. Missing themes stay in the file and
+  reappear when reinstalled; an unreadable file is copied to
+  `theme-collections.json.bak` and treated as empty. Nothing is written until the
+  first star, collection or layout switch, and the capability set is unchanged
   from 0.7.1: local files only, no helper process, no network.
 - Credit ejuro's Extended Theme Picker for the collections feature set,
   reimplemented here on the picker's bounded delegate pool.

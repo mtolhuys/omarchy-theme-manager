@@ -25,8 +25,10 @@ Item {
 
   property var collectionsState: ThemeCollectionsModel.emptyState()
   property bool stateLoaded: false
-  // Grid mode persists for the shell session; favorites-only resets per open.
+  // The layout is remembered in the state file; favorites-only resets per open.
   property bool gridMode: false
+  // Set once the user switches layout, so a late file load cannot undo it.
+  property bool viewTouched: false
   property bool favoritesOnly: false
   property int gridCursor: -1
   property real scrollTop: 0
@@ -124,6 +126,7 @@ Item {
     }
     collectionsState = result.state
     stateLoaded = true
+    if (!viewTouched) gridMode = ThemeCollectionsModel.isGridView(collectionsState)
   }
 
   function save() {
@@ -189,6 +192,15 @@ Item {
   function toggleGrid() {
     if (!active) return
     gridMode = !gridMode
+    viewTouched = true
+    // Remembered across restarts. A file that has not loaded yet is left
+    // alone rather than overwritten with a state this session never read.
+    if (stateLoaded) {
+      collectionsState = ThemeCollectionsModel.setView(
+        collectionsState,
+        gridMode ? "grid" : "carousel")
+      save()
+    }
     focusRequested()
   }
 

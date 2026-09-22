@@ -223,6 +223,35 @@ test("organises installed themes locally through the existing state writer", asy
   assert.match(picker, /ThemeCollectionsSheet \{/)
   assert.match(picker, /id: themeGridButton/)
   assert.match(picker, /text: "ACTIVE"/)
+
+  // The chosen layout is remembered in the same file, not just the session.
+  assert.match(model, /const viewValues = \{ carousel: true, grid: true \}/)
+  assert.match(controller, /ThemeCollectionsModel\.isGridView\(collectionsState\)/)
+  assert.match(controller, /ThemeCollectionsModel\.setView\(/)
+})
+
+test("keeps every picker backdrop above a readable contrast floor", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const runtimeDir = dirname(manifest.entryPoints.overlay)
+  const picker = await read(join(runtimeDir, "ImagePicker.qml"))
+
+  // A theme's own image-picker.scrim-alpha may be as low as 0.5, which is
+  // unreadable over a bright window. Nothing may paint text on the raw value.
+  assert.match(picker, /readonly property real minBackdropAlpha: 0\.9/)
+  assert.match(picker, /Math\.max\(surface\.a, floor\)/)
+  assert.match(picker, /activeScrim: livePaletteReady\s+\? readableBackdrop\(/)
+  assert.doesNotMatch(picker, /scrim: root\.scrim\b/)
+  assert.doesNotMatch(picker, /styleColor: Util\.alpha\(root\.dimColor/)
+
+  // Controls carry their own fill: Style.controlFill at rest is 4% alpha.
+  assert.ok(
+    (picker.match(/background: root\.chromeFill/g) || []).length >= 15,
+    "every footer button needs an at-rest fill"
+  )
+  assert.equal(
+    (picker.match(/bordered: true/g) || []).length,
+    (picker.match(/background: root\.chromeFill/g) || []).length
+  )
 })
 
 test("publishes catalog cache entries through a checked directory descriptor", async () => {

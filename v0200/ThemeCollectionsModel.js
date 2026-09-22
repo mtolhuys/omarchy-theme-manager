@@ -3,6 +3,8 @@ const maxCollections = 100
 const maxNameLength = 64
 const maxThemesPerList = 1000
 const builtinSectionIds = { favorites: true, defaults: true, installed: true, all: true }
+const viewValues = { carousel: true, grid: true }
+const defaultView = "carousel"
 
 const stringValue = (value) => String(value || "")
 const arrayValue = (value) => (Array.isArray(value) ? value : [])
@@ -22,6 +24,12 @@ const safeCollectionId = (value) => {
   return /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(id) ? id : ""
 }
 
+// The remembered layout; anything unrecognised falls back to the carousel.
+const safeView = (value) => {
+  const view = stringValue(value).trim().toLowerCase()
+  return viewValues[view] ? view : defaultView
+}
+
 const normalizeName = (value) =>
   stringValue(value).replace(/\s+/g, " ").trim().slice(0, maxNameLength)
 
@@ -37,7 +45,12 @@ const uniqueThemeIds = (values) => {
   return ids
 }
 
-const emptyState = () => ({ version: stateVersion, favorites: [], collections: [] })
+const emptyState = () => ({
+  version: stateVersion,
+  view: defaultView,
+  favorites: [],
+  collections: []
+})
 
 const normalizeCollection = (entry, seenIds) => {
   if (!isPlainObject(entry)) return null
@@ -63,6 +76,7 @@ const normalizeState = (parsed) => {
   if (!isPlainObject(parsed)) return emptyState()
   return {
     version: stateVersion,
+    view: safeView(parsed.view),
     favorites: uniqueThemeIds(parsed.favorites),
     collections: normalizeCollections(parsed.collections)
   }
@@ -86,6 +100,14 @@ const parseState = (raw) => parseStateResult(raw).state
 const serializeState = (state) => JSON.stringify(normalizeState(state), null, 2) + "\n"
 
 const cloneState = (state) => normalizeState(JSON.parse(serializeState(state || emptyState())))
+
+const isGridView = (state) => safeView(state && state.view) === "grid"
+
+const setView = (state, view) => {
+  const next = cloneState(state)
+  next.view = safeView(view)
+  return next
+}
 
 const backupPath = (path) => (stringValue(path) ? stringValue(path) + ".bak" : "")
 
@@ -479,6 +501,9 @@ if (typeof module !== "undefined") {
     safeCollectionId,
     normalizeName,
     emptyState,
+    safeView,
+    isGridView,
+    setView,
     parseStateResult,
     parseState,
     serializeState,

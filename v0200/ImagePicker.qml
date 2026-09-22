@@ -209,9 +209,24 @@ Item {
   readonly property color activeSelectedBorder: livePaletteReady
     ? livePaletteAccent
     : selectedBorder
+  // A theme may set image-picker.scrim-alpha as low as it likes: over a
+  // wallpaper a thin wash looks right. Over a bright window the same alpha
+  // drops foreground-on-background below a readable ratio, which is why the
+  // footer and its controls became unreadable on light pages. Every backdrop
+  // the picker paints text on therefore gets an opacity floor; the theme's
+  // own color is kept, and a theme asking for more opacity keeps its value.
+  readonly property real minBackdropAlpha: 0.9
+  function readableBackdrop(surface, minimum) {
+    const floor = minimum === undefined ? minBackdropAlpha : minimum
+    return Util.alpha(surface, Math.max(surface.a, floor))
+  }
+  // Control interiors and caption plates sit above the floored wash.
+  readonly property color chromeFill: readableBackdrop(dimColor, 0.94)
+  // Glyph halo for text that sits directly on a preview image.
+  readonly property color chromeOutline: Util.alpha(dimColor, 0.95)
   readonly property color activeScrim: livePaletteReady
-    ? Util.alpha(livePaletteBase, 0.82)
-    : scrim
+    ? readableBackdrop(Util.alpha(livePaletteBase, 0.82))
+    : readableBackdrop(scrim)
   property int expandedWidth: 768
   property int expandedHeight: 475
   property int sliceWidth: 108
@@ -2764,7 +2779,7 @@ Item {
                 ? root.livePaletteAccent
                 : root.foreground
               style: Text.Outline
-              styleColor: Util.alpha(root.dimColor, 0.7)
+              styleColor: root.chromeOutline
               font.pixelSize: Style.font.title
               font.weight: Font.DemiBold
               textFormat: Text.PlainText
@@ -2777,7 +2792,7 @@ Item {
               color: root.foreground
               opacity: 0.7
               style: Text.Outline
-              styleColor: Util.alpha(root.dimColor, 0.7)
+              styleColor: root.chromeOutline
               font.pixelSize: Style.font.body
               textFormat: Text.PlainText
             }
@@ -2943,7 +2958,7 @@ Item {
 
                 Rectangle {
                   anchors.fill: parent
-                  color: Util.alpha(root.livePaletteBase, item.selected ? 0.55 : 0.72)
+                  color: root.readableBackdrop(root.livePaletteBase, item.selected ? 0.82 : 0.9)
                 }
 
                 Column {
@@ -3031,7 +3046,7 @@ Item {
                 text: "★"
                 color: root.livePaletteAccent
                 style: Text.Outline
-                styleColor: Util.alpha(root.dimColor, 0.82)
+                styleColor: root.chromeOutline
                 font.pixelSize: item.selected ? Style.font.display : Style.font.title
                 font.weight: Font.Bold
                 opacity: item.selected ? 1.0 : 0.86
@@ -3044,7 +3059,7 @@ Item {
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
                 height: gridCaption.implicitHeight + Style.space(10)
-                color: Util.alpha(root.dimColor, item.selected ? 0.62 : 0.74)
+                color: root.chromeFill
 
                 Text {
                   id: gridCaption
@@ -3070,7 +3085,7 @@ Item {
                 width: activeBadge.implicitWidth + Style.space(12)
                 height: activeBadge.implicitHeight + Style.space(6)
                 radius: height / 2
-                color: Util.alpha(root.livePaletteBase, 0.88)
+                color: root.readableBackdrop(root.livePaletteBase)
                 border.width: 1
                 border.color: Util.alpha(root.livePaletteAccent, 0.85)
 
@@ -3093,7 +3108,7 @@ Item {
                 width: paletteBadgeRow.implicitWidth + Style.space(18)
                 height: paletteBadgeRow.implicitHeight + Style.space(12)
                 radius: height / 2
-                color: Util.alpha(root.livePaletteBase, 0.86)
+                color: root.readableBackdrop(root.livePaletteBase)
                 border.width: 1
                 border.color: Util.alpha(root.livePaletteAccent, 0.8)
 
@@ -3263,7 +3278,7 @@ Item {
           readonly property bool popupOpen: actionsPopup.opened
           readonly property color menuForeground: root.foreground
           readonly property color menuAccent: root.livePaletteAccent
-          readonly property color menuBackground: Util.alpha(root.dimColor, 0.96)
+          readonly property color menuBackground: root.readableBackdrop(root.dimColor, 0.96)
           readonly property var menuBorderSpec: Border.localOrSurfaceSpec(
             "popups", "border", Util.alpha(root.foreground, 0.28), Color.popups.border, Style.normalBorderWidth)
 
@@ -3281,7 +3296,11 @@ Item {
               _focused ? "focus" : (_hot ? "hover-cursor" : "normal"),
               wallpaperActionsDropdown.menuForeground,
               wallpaperActionsDropdown.menuAccent)
-            color: Style.controlFill(_focused, _hot, wallpaperActionsDropdown.menuForeground, wallpaperActionsDropdown.menuAccent)
+            // At rest Style.controlFill is a 4%-alpha wash, which over a bright
+            // window reads as a hole rather than a control.
+            color: _focused || _hot
+              ? Style.controlFill(_focused, _hot, wallpaperActionsDropdown.menuForeground, wallpaperActionsDropdown.menuAccent)
+              : root.chromeFill
             borderSpec: _borderSpec
             activeFocusOnTab: true
 
@@ -3471,6 +3490,7 @@ Item {
             foreground: root.foreground
             accent: root.livePaletteAccent
             bordered: true
+            background: root.chromeFill
             horizontalPadding: Style.space(10)
             verticalPadding: Style.space(7)
             onClicked: root.resetIconDefaults()
@@ -3488,7 +3508,7 @@ Item {
           text: root.currentLabel()
           color: root.foreground
           style: Text.Outline
-          styleColor: Util.alpha(root.dimColor, 0.7)
+          styleColor: root.chromeOutline
           font.pixelSize: (root.wallhavenMode || root.iconsBrowseMode) ? Style.font.title : Style.font.display
           font.weight: Font.DemiBold
           horizontalAlignment: Text.AlignHCenter
@@ -3511,6 +3531,7 @@ Item {
           foreground: root.foreground
           accent: root.livePaletteAccent
           bordered: true
+          background: root.chromeFill
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
           onClicked: root.openWallhaven()
@@ -3525,7 +3546,7 @@ Item {
           implicitWidth: iconsBrowseContent.implicitWidth + Style.space(14)
           implicitHeight: Math.max(Style.space(34), iconsBrowseContent.implicitHeight + Style.space(12))
           radius: Style.cornerRadius > 0 ? Style.cornerRadius : Style.space(8)
-          color: Util.alpha(root.livePaletteBase, iconsBrowseMouse.containsMouse ? 0.72 : 0.86)
+          color: root.readableBackdrop(root.livePaletteBase, iconsBrowseMouse.containsMouse ? 0.9 : 0.94)
           border.width: 1
           border.color: iconsBrowseMouse.containsMouse
             ? Util.alpha(root.livePaletteAccent, 0.9)
@@ -3602,6 +3623,7 @@ Item {
           foreground: root.foreground
           accent: root.livePaletteAccent
           bordered: true
+          background: root.chromeFill
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
           onClicked: root.openIconsBrowse()
@@ -3617,6 +3639,7 @@ Item {
           foreground: root.foreground
           accent: Color.accent
           bordered: true
+          background: root.chromeFill
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
           onClicked: root.leaveIconsBrowse(true)
@@ -3634,6 +3657,7 @@ Item {
           foreground: Color.accent
           accent: Color.accent
           bordered: true
+          background: root.chromeFill
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
           onClicked: root.applySelected()
@@ -3654,6 +3678,7 @@ Item {
           foreground: root.foreground
           accent: Color.accent
           bordered: true
+          background: root.chromeFill
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
           onClicked: {
@@ -3672,6 +3697,7 @@ Item {
           foreground: root.foreground
           accent: Color.accent
           bordered: true
+          background: root.chromeFill
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
           onClicked: root.leaveIcons(true)
@@ -3692,6 +3718,7 @@ Item {
           foreground: root.foreground
           accent: Color.accent
           bordered: true
+          background: root.chromeFill
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
           onClicked: root.openWallpapersSwitcher()
@@ -3710,6 +3737,7 @@ Item {
           foreground: root.foreground
           accent: Color.accent
           bordered: true
+          background: root.chromeFill
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
           onClicked: themeCollections.toggleGrid()
@@ -3726,6 +3754,7 @@ Item {
           foreground: root.foreground
           accent: root.livePaletteAccent
           bordered: true
+          background: root.chromeFill
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
           onClicked: root.openThemesSwitcher()
@@ -3756,6 +3785,7 @@ Item {
           foreground: root.foreground
           accent: Color.accent
           bordered: true
+          background: root.chromeFill
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
           onClicked: root.openCatalog()
@@ -3771,6 +3801,7 @@ Item {
           foreground: root.foreground
           accent: Color.accent
           bordered: true
+          background: root.chromeFill
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
           onClicked: root.leaveCatalog(true)
@@ -3786,6 +3817,7 @@ Item {
           foreground: root.foreground
           accent: Color.accent
           bordered: true
+          background: root.chromeFill
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
           onClicked: root.leaveWallhaven(true)
@@ -3806,6 +3838,7 @@ Item {
           foreground: root.foreground
           accent: Color.accent
           bordered: true
+          background: root.chromeFill
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
           onClicked: {
@@ -3835,6 +3868,7 @@ Item {
           foreground: themeManager.selectedThemeIsCurrent ? Color.muted : Color.urgent
           accent: Color.urgent
           bordered: true
+          background: root.chromeFill
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
           onClicked: themeManager.requestUninstall()
@@ -3859,6 +3893,7 @@ Item {
           foreground: themeCatalog.canActivateSelected ? Color.accent : Color.muted
           accent: Color.accent
           bordered: true
+          background: root.chromeFill
           horizontalPadding: Style.space(12)
           verticalPadding: Style.space(7)
           onClicked: themeCatalog.requestPrimaryAction()
@@ -3874,7 +3909,7 @@ Item {
         text: root.statusToast
         color: root.livePaletteAccent
         style: Text.Outline
-        styleColor: Util.alpha(root.dimColor, 0.75)
+        styleColor: root.chromeOutline
         font.pixelSize: Style.font.body
         font.weight: Font.DemiBold
         textFormat: Text.PlainText
@@ -3917,7 +3952,7 @@ Item {
         color: wallhaven.errorMessage ? Color.urgent : root.foreground
         opacity: 0.9
         style: Text.Outline
-        styleColor: Util.alpha(root.dimColor, 0.7)
+        styleColor: root.chromeOutline
         font.pixelSize: Style.font.body
         horizontalAlignment: Text.AlignHCenter
         elide: Text.ElideRight
@@ -3959,7 +3994,7 @@ Item {
         color: iconBrowse.errorMessage ? Color.urgent : root.foreground
         opacity: 0.9
         style: Text.Outline
-        styleColor: Util.alpha(root.dimColor, 0.7)
+        styleColor: root.chromeOutline
         font.pixelSize: Style.font.body
         horizontalAlignment: Text.AlignHCenter
         elide: Text.ElideRight
@@ -3996,7 +4031,7 @@ Item {
           color: root.foreground
           opacity: 0.75
           style: Text.Outline
-          styleColor: Util.alpha(root.dimColor, 0.7)
+          styleColor: root.chromeOutline
           font.pixelSize: Style.font.caption
           horizontalAlignment: Text.AlignHCenter
           elide: Text.ElideRight
@@ -4010,7 +4045,7 @@ Item {
           color: root.foreground
           opacity: 0.8
           style: Text.Outline
-          styleColor: Util.alpha(root.dimColor, 0.7)
+          styleColor: root.chromeOutline
           font.pixelSize: Style.font.caption
           horizontalAlignment: Text.AlignHCenter
           elide: Text.ElideRight
@@ -4027,7 +4062,7 @@ Item {
           color: root.catalogMode && root.catalogFiltersActive ? Color.accent : root.foreground
           opacity: 0.9
           style: Text.Outline
-          styleColor: Util.alpha(root.dimColor, 0.7)
+          styleColor: root.chromeOutline
           font.pixelSize: Style.font.title
           horizontalAlignment: Text.AlignHCenter
           elide: Text.ElideRight
@@ -4041,7 +4076,7 @@ Item {
           text: themeCatalog.errorMessage || themeManager.errorMessage
           color: Color.urgent
           style: Text.Outline
-          styleColor: Util.alpha(root.dimColor, 0.7)
+          styleColor: root.chromeOutline
           font.pixelSize: Style.font.caption
           horizontalAlignment: Text.AlignHCenter
           elide: Text.ElideRight
@@ -4058,7 +4093,7 @@ Item {
         confirmText: "Install"
         background: root.dimColor
         foreground: root.foreground
-        scrim: root.scrim
+        scrim: root.activeScrim
         selectedText: Color.accent
         onCanceled: themeCatalog.cancelInstall()
         onConfirmed: themeCatalog.confirmInstall()
@@ -4073,7 +4108,7 @@ Item {
         confirmText: "Uninstall"
         background: root.dimColor
         foreground: root.foreground
-        scrim: root.scrim
+        scrim: root.activeScrim
         selectedText: Color.accent
         onCanceled: themeManager.cancelUninstall()
         onConfirmed: themeManager.confirmUninstall()
@@ -4088,7 +4123,7 @@ Item {
         confirmText: "Install"
         background: root.dimColor
         foreground: root.foreground
-        scrim: root.scrim
+        scrim: root.activeScrim
         selectedText: Color.accent
         onCanceled: iconBrowse.cancelInstall()
         onConfirmed: iconBrowse.confirmInstall()
@@ -4210,6 +4245,7 @@ Item {
         foreground: root.foreground
         accent: Color.accent
         bordered: true
+        background: root.chromeFill
         horizontalPadding: Style.space(12)
         verticalPadding: Style.space(7)
         onClicked: root.searchWallhaven()
@@ -4222,7 +4258,7 @@ Item {
       anchors.fill: parent
       background: root.dimColor
       foreground: root.foreground
-      scrim: Util.alpha(root.dimColor, 0.88)
+      scrim: root.readableBackdrop(root.dimColor, 0.92)
       accent: Color.accent
       onCanceled: Qt.callLater(root.focusPicker)
       onApplied: function(filters) { root.applyWallhavenFilters(filters) }
@@ -4234,7 +4270,7 @@ Item {
       anchors.fill: parent
       background: root.dimColor
       foreground: root.foreground
-      scrim: Util.alpha(root.dimColor, 0.88)
+      scrim: root.readableBackdrop(root.dimColor, 0.92)
       accent: Color.accent
       onCanceled: Qt.callLater(root.focusPicker)
       onApplied: function(filters) { root.applyThemeCatalogFilters(filters) }
@@ -4246,7 +4282,7 @@ Item {
       anchors.fill: parent
       background: root.dimColor
       foreground: root.foreground
-      scrim: Util.alpha(root.dimColor, 0.88)
+      scrim: root.readableBackdrop(root.dimColor, 0.92)
       accent: Color.accent
       onCanceled: Qt.callLater(root.focusPicker)
       onApplied: function(filters) { root.applyIconsBrowseFilters(filters) }
@@ -4258,7 +4294,7 @@ Item {
       anchors.fill: parent
       background: root.dimColor
       foreground: root.foreground
-      scrim: Util.alpha(root.dimColor, 0.88)
+      scrim: root.readableBackdrop(root.dimColor, 0.92)
       accent: Color.accent
       collectionsState: themeCollections.collectionsState
       onCanceled: Qt.callLater(root.focusPicker)

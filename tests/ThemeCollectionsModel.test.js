@@ -34,9 +34,46 @@ test("parses versioned collections and drops unsafe or duplicate entries", () =>
 
   assert.deepEqual(state, {
     version: 1,
+    view: "carousel",
     favorites: ["nord", "manga"],
     collections: [{ id: "c1", name: "Work desk", themes: ["nord"] }]
   })
+})
+
+test("remembers the carousel or grid layout and refuses anything else", () => {
+  assert.equal(ThemeCollectionsModel.emptyState().view, "carousel")
+  assert.equal(ThemeCollectionsModel.isGridView(ThemeCollectionsModel.emptyState()), false)
+
+  const grid = ThemeCollectionsModel.setView(ThemeCollectionsModel.emptyState(), "grid")
+  assert.equal(grid.view, "grid")
+  assert.equal(ThemeCollectionsModel.isGridView(grid), true)
+  assert.equal(
+    ThemeCollectionsModel.isGridView(ThemeCollectionsModel.setView(grid, "carousel")),
+    false
+  )
+
+  // Round-trips through the file, so the layout survives a shell restart.
+  assert.equal(
+    ThemeCollectionsModel.parseState(ThemeCollectionsModel.serializeState(grid)).view,
+    "grid"
+  )
+
+  // A file written before 0.8.0 has no view and opens in the carousel.
+  assert.equal(
+    ThemeCollectionsModel.parseState('{"version":1,"favorites":["nord"]}').view,
+    "carousel"
+  )
+  assert.equal(ThemeCollectionsModel.safeView("GRID"), "grid")
+  assert.equal(ThemeCollectionsModel.safeView("  grid  "), "grid")
+  for (const value of ["list", "", null, undefined, 7, {}]) {
+    assert.equal(
+      ThemeCollectionsModel.safeView(value),
+      "carousel",
+      JSON.stringify(value) || "undefined"
+    )
+  }
+  assert.equal(ThemeCollectionsModel.setView(grid, "nonsense").view, "carousel")
+  assert.equal(ThemeCollectionsModel.parseState('{"view":"grid"}').view, "grid")
 })
 
 test("treats a blank file as empty and a corrupt file as empty with a backup", () => {
@@ -44,6 +81,7 @@ test("treats a blank file as empty and a corrupt file as empty with a backup", (
     state: ThemeCollectionsModel.emptyState(),
     corrupt: false
   })
+  assert.equal(ThemeCollectionsModel.emptyState().view, "carousel")
   assert.deepEqual(ThemeCollectionsModel.parseStateResult("  \n"), {
     state: ThemeCollectionsModel.emptyState(),
     corrupt: false
@@ -73,6 +111,7 @@ test("serializes the fixed schema and round-trips", () => {
     JSON.stringify(
       {
         version: 1,
+        view: "carousel",
         favorites: ["nord"],
         collections: [{ id: "c1", name: "Work", themes: ["nord"] }]
       },
