@@ -22,7 +22,10 @@ emit_themes() {
   local kind=$1
   local directory=$2
   local theme_path
-  [[ -d $directory ]] || return
+  # A user with no themes of their own is a valid state, not a failure: a bare
+  # return would carry the failed test's status out of the function and end the
+  # script under set -e, before stock themes were ever emitted.
+  [[ -d $directory ]] || return 0
   while IFS= read -r -d '' theme_path; do
     theme_row "$kind" "$theme_path"
   done < <(find "$directory" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | sort -z)

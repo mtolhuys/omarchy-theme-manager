@@ -30,6 +30,12 @@
   `theme-collections.json.bak` and treated as empty. Nothing is written until the
   first star, collection or layout switch, and the capability set is unchanged
   from 0.7.1: local files only, no helper process, no network.
+- Fix an empty theme inventory on a fresh install. A machine with no themes of
+  its own has no `~/.config/omarchy/themes`, and the inventory helper ended
+  there with a failing status, so the picker reported that it could not read the
+  inventory and listed no stock themes either. An empty user set is now a valid
+  state: stock themes are listed, uninstall and catalog browsing stay available,
+  and the grid still separates Omarchy defaults from installed themes.
 - Credit ejuro's Extended Theme Picker for the collections feature set,
   reimplemented here on the picker's bounded delegate pool.
 
