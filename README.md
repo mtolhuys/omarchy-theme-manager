@@ -4,14 +4,7 @@
 [![OmaPicks Themes & Appearance champion](assets/omapicks-themes-appearance-2026-W39.svg)](https://omapicks.com/picks/themes-appearance/)
 
 <p align="center">
-  <img src="assets/banner.png" alt="Omarchy Theme Manager — Themes, Wallpapers, and Icons on Matte Black" width="100%" />
-</p>
-
-<p align="center">
-  <picture>
-    <source srcset="assets/banner.webp" type="image/webp" />
-    <img src="assets/banner.gif" alt="Omarchy Theme Manager walkthrough — Themes, Catalog, Wallpapers, Icons" width="100%" />
-  </picture>
+  <img src="assets/banner.gif" alt="Omarchy Theme Manager walkthrough on Matte Black — installed themes in the carousel, the grouped grid with favorites and collections, the community theme catalog and its filters, wallpapers with a live palette, the Actions menu, icon themes with live previews, and the open wallpaper catalog" width="100%" />
 </p>
 
 <p align="center">

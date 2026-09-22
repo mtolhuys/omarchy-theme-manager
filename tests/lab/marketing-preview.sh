@@ -50,6 +50,11 @@ omarchy_host_test() {
 
   ssh_session "python3 --version && magick -version" || return 1
 
+  # The capture walk drives the guest for minutes through virtual input, which
+  # hypridle does not count as activity. Without this the screen locks partway
+  # through and the remaining frames are hyprlock, not the picker.
+  ssh_session "omarchy-toggle-idle stay-awake" || return 1
+
   ssh_session "omarchy-plugin-add $install_source_q --enable --yes" \
     >"$RUN_DIR/theme-manager-marketing-install.log" || return 1
   wait_for_guest_state "Theme Manager $version is installed and loaded" 25 ssh_session \
@@ -119,7 +124,9 @@ omarchy_host_test() {
   wait_for_guest_state "Ctrl+B opens the theme catalog" 75 ssh_session \
     "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
        jq -e '.opened == true and .mode == \"catalog\" and .images > 0'" || return 1
-  sleep 0.6
+  # Catalog previews are fetched per card; 0.6 s caught the highlighted one
+  # still blank, which is the centre of the banner frame.
+  sleep 4
   qmp_pointer_park "$viewport_width" "$viewport_height" || return 1
   sleep 0.3
   capture_console "success-theme-manager-marketing-03-catalog" || return 1
