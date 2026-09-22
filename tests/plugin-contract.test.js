@@ -362,7 +362,13 @@ test("keeps its own state under the private Store root, adopting 0.8.x once", as
   assert.match(pluginState, /_migrated = true/)
   // The originals are left where they are, so a downgrade still finds them.
   assert.doesNotMatch(pluginState, /_legacy\.setText|_legacy\.remove|blockWrites/)
-  assert.match(pluginState, /onLoaded: state\._adopt\(text\(\)\)/)
+  // A FileView nested in a QtObject never delivers onLoaded, and blockLoading
+  // blocks on access rather than on reload(), so the migration read has to be
+  // taken synchronously. Driven against a real quickshell; an onLoaded handler
+  // here would silently never run and the migration would do nothing.
+  assert.match(pluginState, /blockLoading: true/)
+  assert.match(pluginState, /_adopt\(_legacy\.text\(\)\)/)
+  assert.doesNotMatch(pluginState, /_legacy[\s\S]*?onLoaded:/)
 
   // Nothing writes a plugin-owned file behind Store's back any more. The two
   // FileViews left in the picker read Omarchy's own state, and the third

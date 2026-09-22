@@ -89,6 +89,10 @@ QtObject {
       _migrated = true
       _legacy.path = legacyPath
       _legacy.reload()
+      // blockLoading blocks on access, not on reload(), so the read is taken
+      // here rather than waited for: text() is "" when the 0.8.x file is not
+      // there or cannot be read, which settles as the empty state.
+      _adopt(_legacy.text())
       return
     }
     // missing with nothing to adopt is the empty state; so is a file Store
@@ -122,10 +126,14 @@ QtObject {
     }
   }
 
+  // Read synchronously, once, and never written. An async FileView nested in
+  // a QtObject never delivers onLoaded at all -- proved against a real
+  // quickshell -- and blocking is what this read wants anyway: the migration
+  // settles before anything else looks at the state, and the file is one
+  // small JSON document read once per plugin start.
   property FileView _legacy: FileView {
+    blockLoading: true
     preload: false
     printErrors: false
-    onLoaded: state._adopt(text())
-    onLoadFailed: state._settle("", false)
   }
 }
