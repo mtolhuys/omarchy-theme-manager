@@ -190,6 +190,21 @@ test("organises installed themes locally through the existing state writer", asy
   assert.match(picker, /model: root\.themeGridActive \? themeCollections\.gridHeaders : \[\]/)
   assert.match(model, /slots\[cell\.position % size\]/)
 
+  // The grid is drawn inside the carousel, which is wider than the card and
+  // starts left of it once the card clamps to a narrow screen. Cells and
+  // section titles must both be placed from the card's centre, not that origin.
+  assert.match(picker, /gridWidth: Math\.min\(carousel\.width, card\.width\)/)
+  assert.match(
+    picker,
+    /readonly property real gridOriginX: \(width - themeCollections\.gridWidth\) \/ 2/
+  )
+  assert.match(picker, /readonly property real gridOriginY:/)
+  assert.match(picker, /x: carousel\.gridOriginX \+ themeCollections\.geometry\.offsetX/)
+  assert.match(picker, /width: themeCollections\.geometry\.contentWidth/)
+  assert.match(picker, /gridCell \? carousel\.gridOriginX \+ gridCell\.x : 0/)
+  assert.match(picker, /gridCell \? carousel\.gridOriginY \+ gridCell\.y : 0/)
+  assert.doesNotMatch(picker, /width: carousel\.width - 2 \* themeCollections/)
+
   // Search extends the existing installed-theme match to collection names.
   assert.match(controller, /ImagePickerModel\.textMatches/)
   assert.match(

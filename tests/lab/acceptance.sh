@@ -33,6 +33,10 @@
 #      with a count on the right; every card has a name caption, the applied
 #      theme its ACTIVE pill at the top-left, starred themes a star. Slices,
 #      skew and carousel motion are gone; nothing renders outside the card.
+#   5b. The grid is centred: the gap left of the first column equals the gap
+#      right of the last, and each section's count sits at the right edge of the
+#      last column, not out at the card edge. Check on a screen narrower than
+#      ~1900px too, where the card clamps and the carousel overhangs it.
 #   6. Left/Right/Tab walk cards across section boundaries; Up/Down keep the
 #      column and stop at the first and last row; the footer label follows the
 #      highlight; Enter applies the highlighted theme as in the carousel.

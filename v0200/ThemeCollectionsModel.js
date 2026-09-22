@@ -356,6 +356,9 @@ const gridGeometry = (width, height) => {
     cellHeight: Math.round((cellWidth * 9) / 16),
     gap: gridGap,
     headerHeight: gridHeaderHeight,
+    // Content is centred inside the width it was given; the caller places that
+    // box, because the grid is drawn in the carousel's coordinate space.
+    contentWidth,
     offsetX: Math.max(0, Math.floor((available - contentWidth) / 2)),
     viewportHeight: Math.max(0, Number(height) || 0)
   }

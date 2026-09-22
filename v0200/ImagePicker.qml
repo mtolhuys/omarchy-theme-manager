@@ -2453,7 +2453,7 @@ Item {
     currentThemeName: root.currentThemeName
     selectedThemeName: themeManager.selectedThemeName
     selectedIndex: root.selectedIndex
-    gridWidth: Math.min(carousel.width, panel.width - Style.space(80))
+    gridWidth: Math.min(carousel.width, card.width)
     gridHeight: carousel.height
     poolSize: root.carouselPoolSize
     onSelectionRequested: function(imageIndex) { root.select(imageIndex, true) }
@@ -2759,6 +2759,15 @@ Item {
 
         readonly property real itemStep: root.sliceWidth + root.sliceSpacing
         readonly property real previewX: (width - root.expandedWidth) / 2
+        // This Item is wider than the card so carousel slices can run off both
+        // edges, which puts its origin left of the card whenever the card
+        // clamps to a narrower screen. The grid is centred on the card, so it
+        // starts from the middle of that overhang, and it sits in the middle
+        // vertically whenever it is shorter than the viewport.
+        readonly property real gridOriginX: (width - themeCollections.gridWidth) / 2
+        readonly property real gridOriginY: Math.max(
+          0,
+          (themeCollections.geometry.viewportHeight - themeCollections.gridModel.height) / 2)
 
         // Section titles for the rows the grid window shows (at most four).
         Repeater {
@@ -2766,9 +2775,9 @@ Item {
 
           delegate: Item {
             required property var modelData
-            x: themeCollections.geometry.offsetX
-            y: modelData.y
-            width: carousel.width - 2 * themeCollections.geometry.offsetX
+            x: carousel.gridOriginX + themeCollections.geometry.offsetX
+            y: carousel.gridOriginY + modelData.y
+            width: themeCollections.geometry.contentWidth
             height: themeCollections.geometry.headerHeight
 
             Text {
@@ -2858,7 +2867,7 @@ Item {
 
             visible: nearby
             x: root.themeGridActive
-              ? (gridCell ? gridCell.x : 0)
+              ? (gridCell ? carousel.gridOriginX + gridCell.x : 0)
               : (selected ? carousel.previewX : (relativeIndex < 0 ? carousel.previewX + relativeIndex * carousel.itemStep : carousel.previewX + root.expandedWidth + root.sliceSpacing + (relativeIndex - 1) * carousel.itemStep))
             width: root.themeGridActive
               ? (gridCell ? gridCell.width : 0)
@@ -2867,7 +2876,7 @@ Item {
               ? (gridCell ? gridCell.height : 0)
               : (selected ? root.expandedHeight : root.sliceHeight)
             y: root.themeGridActive
-              ? (gridCell ? gridCell.y : 0)
+              ? (gridCell ? carousel.gridOriginY + gridCell.y : 0)
               : (selected ? 0 : (root.expandedHeight - root.sliceHeight) / 2)
             z: root.themeGridActive
               ? (selected ? 100 : 50)

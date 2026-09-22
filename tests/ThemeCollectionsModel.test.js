@@ -320,6 +320,21 @@ test("lays out a grouped grid inside a bounded delegate pool", () => {
   assert.equal(geometry.cellWidth, 260)
   assert.equal(geometry.cellHeight, 146)
 
+  // The caller places this box, so it has to describe itself exactly: content
+  // width plus twice the offset must fill the width the geometry was given.
+  assert.equal(
+    geometry.contentWidth,
+    geometry.columns * geometry.cellWidth + (geometry.columns - 1) * geometry.gap
+  )
+  for (const width of [640, 900, 1076, 1200, 1505, 1782, 2400]) {
+    const box = ThemeCollectionsModel.gridGeometry(width, 475)
+    assert.ok(box.contentWidth <= width, "content fits the width at " + width)
+    assert.ok(
+      Math.abs(width - (box.contentWidth + 2 * box.offsetX)) <= 1,
+      "offset centres the content at " + width
+    )
+  }
+
   const sections = ThemeCollectionsModel.sections(images, allIndices, state, inventory)
   const model = ThemeCollectionsModel.gridModel(sections, geometry)
   assert.deepEqual(
