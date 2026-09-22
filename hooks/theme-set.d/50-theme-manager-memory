@@ -38,9 +38,9 @@ ICONS_THEME_PATH="${HOME}/.local/state/omarchy/current/theme/icons.theme"
 # behind: it matched every name, so the hook returned without restoring
 # anything. A command-line argument cannot carry a NUL in the first place;
 # the character class is the check that was meant.
-if [[ $THEME_NAME == *'/'* || $THEME_NAME == *'..'* || $THEME_NAME == *[[:cntrl:]]* ]]; then
-  exit 0
-fi
+case $THEME_NAME in
+  */* | *..* | *[[:cntrl:]]*) exit 0 ;;
+esac
 if ((${#THEME_NAME} > 255)); then
   exit 0
 fi
