@@ -1,7 +1,14 @@
 const test = require("node:test")
 const assert = require("node:assert/strict")
 const { execFileSync } = require("node:child_process")
-const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } = require("node:fs")
+const {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  chmodSync
+} = require("node:fs")
 const { join } = require("node:path")
 const { tmpdir } = require("node:os")
 const process = require("node:process")
@@ -99,6 +106,50 @@ test("rejects unsafe theme names without rejecting ordinary ones", () => {
 
   runHook(home, "catppuccin")
   assert.equal(appliedIcons(home), "Papirus")
+})
+
+// Run gives a child PATH=/usr/bin, and Omarchy's commands are not there. The
+// hook resolves omarchy-theme-bg-set from OMARCHY_PATH by absolute path rather
+// than reopening PATH, so a dev-linked checkout is found as well as a normal
+// install.
+const fakeBgSet = (home, binDir) => {
+  mkdirSync(binDir, { recursive: true })
+  const script = join(binDir, "omarchy-theme-bg-set")
+  writeFileSync(script, `#!/usr/bin/bash\nprintf '%s\\n' "$1" > ${join(home, "bg-set-called")}\n`)
+  chmodSync(script, 0o755)
+}
+
+const bgSetArgument = (home) => {
+  const path = join(home, "bg-set-called")
+  return existsSync(path) ? readFileSync(path, "utf8").trim() : ""
+}
+
+test("restores the remembered wallpaper through OMARCHY_PATH's bin", () => {
+  const home = sandbox()
+  const omarchyPath = join(home, "Projects/omarchy/core")
+  fakeBgSet(home, join(omarchyPath, "bin"))
+  writeState(home, join(home, ".local/state", pluginId), memory(home, "wallpapers/remembered.png"))
+
+  runHook(home, "catppuccin", { OMARCHY_PATH: omarchyPath })
+  assert.equal(bgSetArgument(home), join(home, "wallpapers/remembered.png"))
+})
+
+test("falls back to the normal install path when OMARCHY_PATH is unset", () => {
+  const home = sandbox()
+  fakeBgSet(home, join(home, ".local/share/omarchy/bin"))
+  writeState(home, join(home, ".local/state", pluginId), memory(home, "wallpapers/remembered.png"))
+
+  runHook(home, "catppuccin")
+  assert.equal(bgSetArgument(home), join(home, "wallpapers/remembered.png"))
+})
+
+test("does not restore a remembered wallpaper whose file is gone", () => {
+  const home = sandbox()
+  fakeBgSet(home, join(home, ".local/share/omarchy/bin"))
+  writeState(home, join(home, ".local/state", pluginId), memory(home, "wallpapers/vanished.png"))
+
+  runHook(home, "catppuccin")
+  assert.equal(bgSetArgument(home), "")
 })
 
 test("succeeds with nothing remembered and no state file at all", () => {
