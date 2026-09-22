@@ -66,6 +66,9 @@ Item {
   property var catalogSourceRows: []
   property var catalogFilters: ({ listing: "all", availability: "all", sort: "best", minStars: 0 })
   property string catalogStickyQuery: ""
+  // The 0.8.x locations of the five files the plugin keeps of its own. They
+  // are read once, when Store reports nothing under the private state root
+  // yet, and then left alone; Store owns every write from here on.
   readonly property string catalogFiltersPath: Quickshell.env("HOME") + "/.config/omarchy/theme-catalog-filters.json"
   property bool wallhavenMode: false
   property string wallhavenStickyQuery: ""
@@ -78,6 +81,7 @@ Item {
   readonly property string wallpaperCommandStatePath: Quickshell.env("HOME") + "/.config/omarchy/wallpaper-command-center.json"
   readonly property string themeMemoryStatePath: Quickshell.env("HOME") + "/.config/omarchy/theme-manager-memory.json"
   readonly property string themeCollectionsStatePath: Quickshell.env("HOME") + "/.config/omarchy/theme-collections.json"
+  readonly property string pluginId: "io.github.mtolhuys.theme-manager"
   readonly property string homeDir: Quickshell.env("HOME")
   readonly property string themeBackgroundsRoot: homeDir + "/.config/omarchy/backgrounds"
   readonly property string currentThemeRoot: stateHome + "/omarchy/current/theme/backgrounds"
@@ -254,6 +258,17 @@ Item {
     // runs from onManifestChanged. Call anyway if binding order changes.
     ensureThemeSetMemoryHook()
     ensureFooterIconsReady()
+    // Store reads through a helper process, so these land a moment after the
+    // FileView preload they replace; every reader here already copes with the
+    // state arriving late.
+    loadPluginState()
+  }
+
+  function loadPluginState() {
+    catalogFiltersFile.load()
+    wallhavenFiltersFile.load()
+    wallpaperCommandState.load()
+    themeMemoryStateFile.load()
   }
 
   onManifestChanged: {
@@ -441,7 +456,7 @@ Item {
   }
 
   function saveWallpaperCommandState() {
-    wallpaperCommandState.setText(WallpaperCommandModel.serializeState(favoriteIds))
+    wallpaperCommandState.save(WallpaperCommandModel.serializeState(favoriteIds))
   }
 
   function loadThemeMemoryState(raw) {
@@ -449,7 +464,7 @@ Item {
   }
 
   function saveThemeMemoryState() {
-    themeMemoryStateFile.setText(ThemeMemoryModel.serializeState(themeMemoryState))
+    themeMemoryStateFile.save(ThemeMemoryModel.serializeState(themeMemoryState))
   }
 
   function showStatus(message) {
@@ -1583,7 +1598,7 @@ Item {
   }
 
   function persistCatalogFilters() {
-    catalogFiltersFile.setText(
+    catalogFiltersFile.save(
       ThemeCatalogModel.serializeCatalogFilters(catalogFilters, catalogStickyQuery)
     )
   }
@@ -1651,7 +1666,7 @@ Item {
   }
 
   function persistWallhavenFilters() {
-    wallhavenFiltersFile.setText(
+    wallhavenFiltersFile.save(
       WallpaperBrowserModel.serializeFilters(currentWallhavenFilters(), wallhavenStickyQuery)
     )
   }
@@ -1994,50 +2009,45 @@ Item {
     }
   }
 
-  FileView {
+  PluginState {
     id: catalogFiltersFile
-    path: root.catalogFiltersPath
-    atomicWrites: true
-    printErrors: false
-    onLoaded: root.loadCatalogFiltersState(text())
-    onLoadFailed: root.loadCatalogFiltersState("")
+    pluginId: root.pluginId
+    name: "theme-catalog-filters.json"
+    legacyPath: root.catalogFiltersPath
+    onTextReady: function(text) { root.loadCatalogFiltersState(text) }
+    onSaveFailed: root.showStatus("Catalog filters could not be saved")
   }
 
-  FileView {
+  PluginState {
     id: wallhavenFiltersFile
-    path: root.wallhavenFiltersPath
-    atomicWrites: true
-    printErrors: false
-    onLoaded: root.loadWallhavenFiltersState(text())
-    onLoadFailed: root.loadWallhavenFiltersState("")
+    pluginId: root.pluginId
+    name: "wallpaper-browser-filters.json"
+    legacyPath: root.wallhavenFiltersPath
+    onTextReady: function(text) { root.loadWallhavenFiltersState(text) }
+    onSaveFailed: root.showStatus("Wallpaper filters could not be saved")
   }
 
-  FileView {
+  PluginState {
     id: wallpaperCommandState
-    path: root.wallpaperCommandStatePath
-    atomicWrites: true
-    printErrors: false
-    onLoaded: root.loadWallpaperCommandState(text())
-    onLoadFailed: root.loadWallpaperCommandState("")
+    pluginId: root.pluginId
+    name: "wallpaper-command-center.json"
+    legacyPath: root.wallpaperCommandStatePath
+    onTextReady: function(text) { root.loadWallpaperCommandState(text) }
+    onSaveFailed: root.showStatus("Starred wallpapers could not be saved")
   }
 
-  FileView {
+  PluginState {
     id: themeMemoryStateFile
-    path: root.themeMemoryStatePath
-    atomicWrites: true
-    printErrors: false
-    onLoaded: {
-      root.loadThemeMemoryState(text())
+    pluginId: root.pluginId
+    name: "theme-manager-memory.json"
+    legacyPath: root.themeMemoryStatePath
+    onTextReady: function(text) {
+      root.loadThemeMemoryState(text)
       root.lastRestoredThemeName = ""
       if (root.currentThemeName)
         root.scheduleThemeMemoryRestore(root.currentThemeName, true)
     }
-    onLoadFailed: {
-      root.loadThemeMemoryState("")
-      root.lastRestoredThemeName = ""
-      if (root.currentThemeName)
-        root.scheduleThemeMemoryRestore(root.currentThemeName, true)
-    }
+    onSaveFailed: root.showStatus("Theme memory could not be saved")
   }
 
   FileView {
@@ -2472,6 +2482,7 @@ Item {
 
   ThemeCollectionsController {
     id: themeCollections
+    pluginId: root.pluginId
     statePath: root.themeCollectionsStatePath
     pickerOpen: root.opened
     active: root.themeCollectionsActive

@@ -109,7 +109,21 @@ const setView = (state, view) => {
   return next
 }
 
-const backupPath = (path) => (stringValue(path) ? stringValue(path) + ".bak" : "")
+const backupFileName = "theme-collections.json.bak"
+// Store writes a JSON value, and the text it kept back is by definition not
+// one, so it travels as a string inside an envelope. Store refuses a write
+// over 64 KiB; the text is cut well under that so the envelope around it
+// always fits, and says so when it had to cut.
+const maxBackupTextLength = 48 * 1024
+const serializeBackup = (raw, unreadable) => {
+  const text = stringValue(raw)
+  return JSON.stringify({
+    version: 1,
+    unreadable: unreadable === true,
+    truncated: text.length > maxBackupTextLength,
+    text: text.slice(0, maxBackupTextLength)
+  })
+}
 
 const isFavorite = (state, themeId) => {
   const id = safeThemeId(themeId)
@@ -534,7 +548,8 @@ if (typeof module !== "undefined") {
     parseStateResult,
     parseState,
     serializeState,
-    backupPath,
+    backupFileName,
+    serializeBackup,
     isFavorite,
     favoriteCount,
     toggleFavorite,

@@ -50,6 +50,7 @@ test("versions the complete QML and JavaScript runtime graph", async () => {
     "WallpaperCommandModel.js",
     "WallpaperPalette.qml",
     "WallpaperPaletteModel.js",
+    "PluginState.qml",
     "WallhavenFilterBar.qml",
     "WallhavenFilterSheet.qml",
     "ThemeCatalogFilterBar.qml",
@@ -186,15 +187,19 @@ test("organises installed themes locally through the existing state writer", asy
   const model = await read(join(runtimeDir, "ThemeCollectionsModel.js"))
   const sheet = await read(join(runtimeDir, "ThemeCollectionsSheet.qml"))
 
-  // Same FileView block as the sticky memory file; no helper process, no network.
+  // Same private state file as the sticky memory; no network, and the only
+  // process is the one Store starts.
   assert.match(picker, /theme-collections\.json/)
   assert.match(
     controller,
-    /FileView \{\s+id: stateFile\s+path: root\.statePath\s+atomicWrites: true\s+printErrors: false/
+    /PluginState \{\s+id: stateFile\s+pluginId: root\.pluginId\s+name: "theme-collections\.json"\s+legacyPath: root\.statePath/
   )
-  assert.match(controller, /id: backupFile[\s\S]*?preload: false[\s\S]*?atomicWrites: true/)
-  assert.match(controller, /ThemeCollectionsModel\.backupPath\(root\.statePath\)/)
-  assert.doesNotMatch(controller, /Process \{|execDetached|execArgv|Quickshell\.env/)
+  assert.match(
+    controller,
+    /PluginState \{\s+id: backupFile[\s\S]*?name: ThemeCollectionsModel\.backupFileName/
+  )
+  assert.match(controller, /backupFile\.save\(ThemeCollectionsModel\.serializeBackup\(/)
+  assert.doesNotMatch(controller, /Process \{|FileView|execDetached|execArgv|Quickshell\.env/)
   assert.doesNotMatch(model + sheet, /XMLHttpRequest|http/)
 
   // Grid view rides on the bounded carousel pool instead of a second Repeater.
@@ -307,6 +312,76 @@ test("documents the release in the changelog, readme and submission notes", asyn
     new RegExp("(^|\\s)" + manifest.version.replace(/\./g, "\\.") + "(\\s|$)", "m"),
     "MARKETPLACE-VERIFY.md still describes an older version"
   )
+})
+
+test("keeps its own state under the private Store root, adopting 0.8.x once", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const runtimeDir = dirname(manifest.entryPoints.overlay)
+  const picker = await read(join(runtimeDir, "ImagePicker.qml"))
+  const pluginState = await read(join(runtimeDir, "PluginState.qml"))
+  const collections = await read(join(runtimeDir, "ThemeCollectionsController.qml"))
+  const notice = await read("omakit/NOTICE")
+
+  // The block is vendored unmodified; a fix belongs in omakit, not the copy.
+  assert.match(notice, /block store 0\.2\.0/)
+  assert.match(await read("omakit/Store.qml"), /^\/\/ omakit block: store 0\.2\.0/)
+  assert.match(await read("omakit/store-helper.py"), /^# omakit block: store 0\.2\.0/)
+
+  // Every plugin-owned file goes through Store, under the plugin's own id.
+  assert.match(pluginState, /property Store _store: Store \{/)
+  assert.match(pluginState, /kind: "state"/)
+  assert.match(picker, /readonly property string pluginId: "io\.github\.mtolhuys\.theme-manager"/)
+  for (const name of [
+    "theme-catalog-filters.json",
+    "wallpaper-browser-filters.json",
+    "wallpaper-command-center.json",
+    "theme-manager-memory.json"
+  ]) {
+    assert.match(picker, new RegExp('name: "' + name.replace(/\./g, "\\.") + '"'))
+  }
+  assert.match(collections, /name: "theme-collections\.json"/)
+  assert.equal((picker.match(/PluginState \{/g) || []).length, 4)
+  assert.equal((collections.match(/PluginState \{/g) || []).length, 2)
+
+  // The five 0.8.x paths are still named, because they are still read -- once,
+  // when Store reports nothing of ours there yet -- and never written again.
+  for (const legacy of [
+    "theme-catalog-filters.json",
+    "wallpaper-browser-filters.json",
+    "wallpaper-command-center.json",
+    "theme-manager-memory.json",
+    "theme-collections.json"
+  ]) {
+    assert.match(
+      picker,
+      new RegExp("\\.config/omarchy/" + legacy.replace(/\./g, "\\.")),
+      legacy + " keeps its 0.8.x path for the one-time read"
+    )
+  }
+  assert.match(pluginState, /result\.state === "missing" && legacyPath && !_migrated/)
+  assert.match(pluginState, /_migrated = true/)
+  // The originals are left where they are, so a downgrade still finds them.
+  assert.doesNotMatch(pluginState, /_legacy\.setText|_legacy\.remove|blockWrites/)
+  assert.match(pluginState, /onLoaded: state\._adopt\(text\(\)\)/)
+
+  // Nothing writes a plugin-owned file behind Store's back any more. The two
+  // FileViews left in the picker read Omarchy's own state, and the third
+  // writes the caller's selection and done files, which are not ours.
+  assert.equal((picker.match(/FileView \{/g) || []).length, 3)
+  assert.doesNotMatch(picker, /setText\(ThemeMemoryModel|setText\(WallpaperCommandModel/)
+  for (const id of [
+    "catalogFiltersFile",
+    "wallhavenFiltersFile",
+    "wallpaperCommandState",
+    "themeMemoryStateFile"
+  ]) {
+    assert.doesNotMatch(picker, new RegExp(id + "\\.setText\\("))
+  }
+
+  // The hook runs where Run did not start it and reads the new root.
+  const hook = await read("hooks/theme-set.d/50-theme-manager-memory")
+  assert.match(hook, /XDG_STATE_HOME/)
+  assert.match(hook, /io\.github\.mtolhuys\.theme-manager/)
 })
 
 test("publishes catalog cache entries through a checked directory descriptor", async () => {
