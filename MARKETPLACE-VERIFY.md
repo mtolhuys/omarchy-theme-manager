@@ -55,8 +55,8 @@ Maintainer notes (not required by form):
   strips the NUL out of the pattern, leaving `**`, which matches every name.
   The hook returned at that line on every theme switch, so the per-theme
   wallpaper and icon restore has never run on the hook path — present in 0.8.0
-  and every release before it. Fixed, with six regression tests
-  (`tests/theme-set-hook.test.js`); five of them fail against 0.8.0's hook.
+  and every release before it. Fixed, with nine regression tests
+  (`tests/theme-set-hook.test.js`); seven of them fail against 0.8.0's hook.
 - Store refuses a write over 64 KiB, which `FileView` did not. Every write site
   reports a refusal as a status toast rather than losing it quietly. The
   collections `.bak` now travels in a JSON envelope, since Store writes a value

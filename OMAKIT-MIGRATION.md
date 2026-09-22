@@ -122,8 +122,8 @@ that line on every theme switch, so the sticky wallpaper and icon restore has
 never run on the hook path; only the picker's own in-process restore did.
 
 Present in 0.8.0 and every release before it. Fixed here with a `case` and a
-`[[:cntrl:]]` class, and covered by `tests/theme-set-hook.test.js`; five of
-its six tests fail against 0.8.0's hook. This is the one behaviour change in
+`[[:cntrl:]]` class, and covered by `tests/theme-set-hook.test.js`; seven of
+its nine tests fail against 0.8.0's hook. This is the one behaviour change in
 0.9.0 and it is called out in the changelog and the submission, because the
 rest of the release is a refactor with a zero behaviour diff.
 

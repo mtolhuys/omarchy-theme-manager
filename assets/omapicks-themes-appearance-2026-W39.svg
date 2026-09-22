@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="454" height="20" role="img" aria-label="OmaPicks Themes &amp; Appearance champion: Omarchy Theme Manager">
+  <title>OmaPicks Themes &amp; Appearance champion: Omarchy Theme Manager</title>
+  <defs>
+    <clipPath id="badge">
+      <rect width="454" height="20" rx="3"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#badge)">
+    <rect width="78" height="20" fill="#c0caf5"/>
+    <rect x="78" width="376" height="20" fill="#8bd5ca"/>
+  </g>
+  <text x="10" y="14.5" fill="#1a1b26" font-family="'Cascadia Mono',ui-monospace,monospace" font-size="11" font-weight="700">OmaPicks</text>
+  <text x="86" y="14.5" fill="#1a1b26" font-family="'Cascadia Mono',ui-monospace,monospace" font-size="11">Omarchy Theme Manager · Themes &amp; Appearance · 2026-W39</text>
+</svg>

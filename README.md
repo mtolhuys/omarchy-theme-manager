@@ -1,7 +1,7 @@
 # Omarchy Theme Manager
 
 [![Built for Omarchy: Plugin](https://raw.githubusercontent.com/tcballard/omarchy-badges/75975e5b5bf75e7ede3764bcd2950046f7abfe2c/badges/v1/omarchy-plugin.svg)](https://plugins.omarchy.org/plugin.html?id=io.github.mtolhuys.theme-manager)
-[![OmaPicks Themes & Appearance champion](https://omapicks.com/badges/2026-W39/themes-appearance/io.github.mtolhuys.theme-manager.svg)](https://omapicks.com/picks/themes-appearance/)
+[![OmaPicks Themes & Appearance champion](assets/omapicks-themes-appearance-2026-W39.svg)](https://omapicks.com/picks/themes-appearance/)
 
 <p align="center">
   <img src="assets/banner.png" alt="Omarchy Theme Manager — Themes, Wallpapers, and Icons on Matte Black" width="100%" />
