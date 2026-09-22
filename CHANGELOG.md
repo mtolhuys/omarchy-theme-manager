@@ -34,7 +34,7 @@
 - No new capability, host, process, timer or permission. `omakit verify`
   reports no findings and the only capability is still `installer`, unchanged
   since 0.7.1. `omakit inspect` moves process-lifecycle from 23 to 0,
-  unbounded-buffering from 18 to 0, and environment-trust from 490 to 449.
+  unbounded-buffering from 18 to 0, and environment-trust from 490 to 469.
 
 ## 0.8.0 - 2026-09-22
 

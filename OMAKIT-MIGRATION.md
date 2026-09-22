@@ -18,7 +18,7 @@ released (`f27014c`, tag `v0.8.0`); "after" is 0.9.0.
 | process-lifecycle (no deadline) | 23        | 23                 | **0**         | 0 in QML      |
 | unbounded-buffering (no cap)    | 18        | 18                 | **0**         | 0 in QML      |
 | file-and-state-boundary         | 7         | 7                  | 7             | at or below 7 |
-| environment-trust               | 475       | 490                | 449           | —             |
+| environment-trust               | 475       | 490                | 469           | —             |
 | argument-grammar                | 17        | 17                 | 17            | 17            |
 | network-egress                  | 1         | 1                  | 3             | 1             |
 
@@ -31,7 +31,7 @@ plugin starts now has a deadline and a byte cap, and no QML file is left with a
 `Process`, a `StdioCollector`, an `onDataChanged` byte count or a `.signal(9)`.
 
 The two rows that moved the wrong way earlier came back down. `environment-trust`
-is _below_ 0.8.0 (449 against 490), because inspect stops counting tool names in
+is _below_ 0.8.0 (469 against 490), because inspect stops counting tool names in
 a helper Run starts — it reports "50 tool names in 9 helpers started through
 Run, resolved in the block's closed PATH and not counted". `file-and-state-boundary`
 is back at 7: the plugin's own writes moved into Store, which is not a counted

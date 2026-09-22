@@ -34,7 +34,7 @@ Maintainer notes (not required by form):
   since 0.7.1.
 - `omakit inspect`, on a clean tree, against 0.8.0 (`f27014c`):
   process-lifecycle 23 → **0**, unbounded-buffering 18 → **0**,
-  environment-trust 490 → 449, file-and-state-boundary 7 → 7,
+  environment-trust 490 → 469, file-and-state-boundary 7 → 7,
   argument-grammar 17 → 17. The first two classes no longer appear in the
   report at all: no QML file is left with a bare `Process`, a `StdioCollector`,
   an `onDataChanged` byte count or a `.signal(9)`, and all 24 runs carry a
