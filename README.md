@@ -41,8 +41,15 @@
   Omarchy badge. Rendering stays bounded to a small reusable delegate pool even
   when the catalog reaches its 2,000-record input ceiling.
 - **Wallpaper picker** — favorites (`Ctrl+D`), live palette while browsing,
-  Actions hamburger (Save / All / Reset / Remove), and a built-in open-art catalog. Rapid
-  left/right navigation debounces palette extraction and reuses recent palettes.
+  Actions hamburger (Save / All / Open folder / Reset / Remove), and a built-in
+  open-art catalog. Rapid left/right navigation debounces palette extraction and
+  reuses recent palettes.
+- **Any image on disk** — **Open folder** / `O` browses your home directory in
+  the same carousel: folder cards show a preview of what is inside and how many
+  images they hold, the breadcrumb jumps to any step of the path, typing filters
+  the folder, and `Ctrl+H` adds dot-entries. Choosing an image copies it into
+  the theme's backgrounds and remembers it like any other wallpaper. The folder
+  you were last in comes back next time.
 - **Open wallpapers** — the wallpaper library bundled with Omarchy is the
   offline default. Unbranded community abstract, minimal, dark, space, and
   neon art plus Commons photography remain optional. Community sort and license
@@ -95,10 +102,24 @@ Open the Omarchy theme switcher (`Super+Shift+Ctrl+Space`).
 
 Open the background switcher (`Super+Ctrl+Space`).
 
-- Footer: Actions (☰) + **Themes** on the left; **Browse wallpapers** + Icons on
-  the right.
+- Footer: Actions (☰) + **Themes** on the left; **Open folder**,
+  **Browse wallpapers** and Icons on the right.
 - Local favorites, live palette, Remove/Reset for user backgrounds.
 - Open wallpapers: type to search, **Filters** / `Ctrl+F`, **Load more** / `Ctrl+N`.
+
+### Folder browser
+
+**Open folder** / `O` / `Ctrl+O` from the wallpaper picker.
+
+- Folder cards show a preview and an image count; image cards behave exactly as
+  local wallpapers do, live palette included.
+- `Enter` opens a folder or sets an image as the wallpaper; `Backspace` (or
+  `Alt+↑`, or the **Up** chip) goes back out, landing on the folder you left.
+- The breadcrumb above the footer is clickable — every step back to Home is one
+  click away.
+- Type to filter the folder; `Ctrl+H` also lists dot-folders and dot-files.
+- Browsing stays inside your home directory, which is also the only place
+  Omarchy's wallpaper installer accepts sources from.
 
 ### Icons mode
 
@@ -116,6 +137,9 @@ Open from any picker footer Icons chip or `Ctrl+I`.
 | `Ctrl+W` / `W` | Wallpapers / leave online browsing      |
 | `B` / `Ctrl+B` | Browse (themes, wallpapers, or icons)   |
 | `M`            | Actions menu (local wallpapers)         |
+| `O` / `Ctrl+O` | Open folder (local wallpapers)          |
+| `Ctrl+H`       | Show hidden files (folder browser)      |
+| `Backspace`    | Up one folder (folder browser)          |
 | `Ctrl+I`       | Icons mode                              |
 | `Ctrl+F`       | Filters (catalog, wallpapers, or icons) |
 | `Ctrl+D`       | Toggle favorite (wallpaper or theme)    |
@@ -200,6 +224,15 @@ signatures are validated, every directory from `HOME` to the cache and data
 locations is owner-checked/no-follow, and publication uses atomic replacement.
 Downloads retain source/license attribution.
 
+Folder browsing: `browse-folder.sh` lists one directory at a time. The
+directory must resolve, through `realpath`, to the home directory or something
+under it; `/etc`, a parent of `$HOME`, and a symlink pointing out of the tree
+are all refused. The walk never follows symlinks, so a link planted inside the
+tree cannot widen it either. A listing is capped at 240 directories, 600 images
+and 1 MiB of output, previews are resolved for the first 96 directories only,
+and names carrying a tab or newline are dropped rather than escaped. A chosen
+image goes through the same `install-wallpaper.sh` path as a catalog download.
+
 Icon packs: only the `icons-browse.sh` helper talks to
 `api.gnome-look.org` OCS; downloads are size-capped, extracted with path-traversal
 guards, and installed under `~/.local/share/icons` after confirmation.
@@ -240,12 +273,13 @@ where that is set); delete it to clear saved wallpaper favorites, theme
 favorites and collections, sticky memory and the stored filters, or delete
 `wallpaper-command-center.json`, `theme-collections.json`,
 `theme-manager-memory.json` and the two `*-filters.json` files inside it
-individually.
+individually. `wallpaper-command-center.json` also holds the folder the browser
+was last in and whether it was showing hidden files.
 
 Before 0.9.0 these lived in `~/.config/omarchy/`. Upgrading copies each one
 into the directory above on the picker's next start and leaves the original
 where it is, so a downgrade still finds it; delete the old copies yourself once
-you are sure you are staying on 0.9.0.
+you are sure you are staying on 0.9.0 or later.
 
 ## Credits
 

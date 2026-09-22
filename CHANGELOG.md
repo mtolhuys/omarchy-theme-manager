@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.10.0 - 2026-09-23
+
+- Pick a wallpaper from your own files. **Open folder** in the wallpaper
+  picker's footer, `O`, `Ctrl+O`, or **Open folder…** in the Actions menu turns
+  the carousel into a folder browser over your home directory: folder cards
+  carry a preview of the first image inside and how many images the folder
+  holds, image cards behave exactly as local wallpapers do, live palette
+  included. `Enter` opens a folder or applies an image, `Backspace`, `Alt+↑` and
+  the **Up** chip step back out onto the folder just left, the breadcrumb above
+  the footer jumps to any step of the path, typing filters the current folder
+  with the same fuzzy search the rest of the picker uses, and `Ctrl+H` adds
+  dot-entries. The folder and that choice are remembered in
+  `wallpaper-command-center.json`, so the next visit resumes where the last one
+  stopped.
+- A chosen file leaves through the path a catalog download already takes:
+  `install-wallpaper.sh` copies it into `~/.config/omarchy/backgrounds/<theme>/`
+  and sticky memory remembers it, so it survives theme switches and shows up in
+  the local carousel like every other wallpaper.
+- The new `browse-folder.sh` helper lists one directory at a time and is bounded
+  on every axis: the path must resolve under `$HOME` (a parent, `/etc`, or a
+  symlink pointing out of the tree is refused and never followed), the walk uses
+  `find -P`, and a listing stops at 240 directories, 600 images, previews for
+  the first 96 directories and 1 MiB of output, with a truncation marker the
+  picker reports rather than hiding. Names carrying a tab or newline are dropped
+  instead of escaped. It reuses Omarchy's own thumbnail index where the index
+  has an entry and falls back to the image itself otherwise, decoding capped at
+  twice the card height so a camera original costs no more than a thumbnail.
+- No new capability, host, timer or permission. One new helper process, started
+  through Run with a 30-second deadline and a 2 MiB output cap. `omakit verify`
+  reports no findings and the disposition is still `review-required` for the
+  unchanged `installer` capability. `omakit inspect` against 0.9.0: file and
+  state boundary 7 → 7, argument grammar 17 → 17, process lifecycle and
+  unbounded buffering still 0; environment trust 469 → 514, 17 of the 45 in
+  `browse-folder.sh` (the same PATH-resolution rows every other helper already
+  carries, all of them started in Run's closed `PATH`) and 28 in
+  `tests/lab/acceptance.sh`, which ships nothing. The size score moves 7.14 →
+  6.94, from the folder steps added to that same lab script.
+
 ## 0.9.0 - 2026-09-22
 
 - Start every program through omakit's Run block. Each of the 24 sites in QML

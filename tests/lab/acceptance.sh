@@ -249,6 +249,132 @@ omarchy_host_test() {
      jq -e '.version == 2 and (.favorites | length) == 0' \
        \"$state_root/wallpaper-command-center.json\"" || return 1
 
+  # Folder browsing: the picker reaches any image the user keeps under HOME,
+  # and nothing above or beside it.
+  local plugin_dir="\$HOME/.config/omarchy/plugins/io.github.mtolhuys.theme-manager"
+  ssh_session "mkdir -p \"\$HOME/Pictures/lab-walls\" \"\$HOME/Pictures/.lab-hidden\" && \
+    stock=\$(find \"\$HOME/.local/state/omarchy/current/theme/backgrounds\" -maxdepth 1 \
+      -type f -size +4095c \\( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' \
+      -o -iname '*.webp' \\) | sort | head -1) && \
+    [[ -n \$stock ]] && \
+    cp -- \"\$stock\" \"\$HOME/Pictures/lab-walls/lab-pick.\${stock##*.}\" && \
+    cp -- \"\$stock\" \"\$HOME/Pictures/.lab-hidden/hidden-pick.\${stock##*.}\" && \
+    ln -sfn /etc \"\$HOME/Pictures/lab-escape\"" || return 1
+
+  press o || return 1
+  wait_for_guest_state "O opens the folder browser in the user's picture folder" 25 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e --arg home \"\$HOME\" '.opened == true and .mode == \"folder\" and \
+         .folderDirectory == (\$home + \"/Pictures\") and .folderShowHidden == false and \
+         .folderCanGoUp == true and .images == 2'" || return 1
+  capture_console "success-theme-manager-04b-folder-browser" || return 1
+
+  wait_for_guest_state "the listing helper refuses and never follows a link out of HOME" 20 ssh_session \
+    "if \"$plugin_dir/browse-folder.sh\" \"\$HOME/Pictures/lab-escape\" >/dev/null 2>&1; then \
+       exit 1; fi; \
+     if \"$plugin_dir/browse-folder.sh\" /etc >/dev/null 2>&1; then exit 1; fi; \
+     if \"$plugin_dir/browse-folder.sh\" \"\$HOME/Pictures\" | grep -q lab-escape; then \
+       exit 1; fi; \
+     exit 0" || return 1
+
+  press ctrl-h || return 1
+  wait_for_guest_state "Ctrl+H also lists hidden folders and remembers the choice" 25 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e '.mode == \"folder\" and .folderShowHidden == true and .images == 3' && \
+     jq -e '.showHidden == true' \"$state_root/wallpaper-command-center.json\"" || return 1
+  press ctrl-h || return 1
+  wait_for_guest_state "Ctrl+H hides them again" 25 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e '.mode == \"folder\" and .folderShowHidden == false and .images == 2'" || return 1
+
+  for key in l a b; do
+    press "$key" || return 1
+  done
+  wait_for_guest_state "typing filters the folder listing down to one card" 20 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e --arg home \"\$HOME\" '.mode == \"folder\" and .matchingImages == 1 and \
+         .selectedPath == (\$home + \"/Pictures/lab-walls\")'" || return 1
+
+  press ret || return 1
+  wait_for_guest_state "Return opens the folder and lands on the first image in it" 25 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e --arg home \"\$HOME\" '.mode == \"folder\" and \
+         .folderDirectory == (\$home + \"/Pictures/lab-walls\") and \
+         (.selectedPath | startswith(\$home + \"/Pictures/lab-walls/lab-pick.\")) and \
+         .paletteReady == true'" || return 1
+  capture_console "success-theme-manager-04c-folder-image" || return 1
+
+  press backspace || return 1
+  wait_for_guest_state "Backspace steps back out onto the folder just left" 25 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e --arg home \"\$HOME\" '.mode == \"folder\" and \
+         .folderDirectory == (\$home + \"/Pictures\") and \
+         .selectedPath == (\$home + \"/Pictures/lab-walls\")'" || return 1
+
+  press ret || return 1
+  wait_for_guest_state "the folder opens again" 25 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e --arg home \"\$HOME\" '.mode == \"folder\" and \
+         .folderDirectory == (\$home + \"/Pictures/lab-walls\")'" || return 1
+
+  press ret || return 1
+  wait_for_guest_state "a file chosen from disk is copied in, applied and remembered" 55 ssh_session \
+    "theme=\$(cat \"\$HOME/.local/state/omarchy/current/theme.name\") && \
+     background=\$(readlink -f \"\$HOME/.local/state/omarchy/current/background\") && \
+     [[ \$background == \"\$HOME/.config/omarchy/backgrounds/\$theme/lab-pick.\"* ]] && \
+     [[ -f \$background && ! -L \$background ]] && \
+     cmp -s \"\$background\" \"\$(find \"\$HOME/Pictures/lab-walls\" -maxdepth 1 -type f | head -1)\" && \
+     jq -e --arg theme \"\$theme\" --arg background \"\$background\" \
+       '.themes[\$theme].wallpaper == \$background' \
+       \"$state_root/theme-manager-memory.json\" && \
+     jq -e --arg home \"\$HOME\" '.folder == (\$home + \"/Pictures/lab-walls\")' \
+       \"$state_root/wallpaper-command-center.json\" && \
+     hyprctl -j layers | jq -e \
+       '[.. | objects | select(.namespace? == \"omarchy-image-selector\")] | length == 0'" || return 1
+  capture_console "success-theme-manager-04d-folder-applied" || return 1
+
+  press meta_l-ctrl-spc || return 1
+  wait_for_guest_state "the wallpaper picker reopens on the local wallpapers" 25 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e '.opened == true and .mode == \"wallpapers\" and .layoutSettled == true'" || return 1
+  # layoutSettled flips one callLater before the key handler takes focus, and a
+  # chord sent into that window is dropped by Qt rather than by the picker.
+  ssh_session "sleep 1" || return 1
+  press ctrl-o || return 1
+  wait_for_guest_state "folder browsing resumes where it was left" 30 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e --arg home \"\$HOME\" '.mode == \"folder\" and \
+         .folderDirectory == (\$home + \"/Pictures/lab-walls\")'" || return 1
+  press esc || return 1
+  wait_for_guest_state "Escape returns from folder browsing to the local wallpapers" 25 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e '.opened == true and .mode == \"wallpapers\" and .images > 0'" || return 1
+
+  # A remembered folder that will not read must cost one listing, never the
+  # user's place: the browser steps up a level and the folder stays recorded,
+  # so the next visit tries it again.
+  ssh_session "mv \"\$HOME/Pictures/lab-walls\" \"\$HOME/Pictures/lab-walls-away\"" || return 1
+  press ctrl-o || return 1
+  wait_for_guest_state "an unreadable folder steps up instead of losing the place" 30 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e --arg home \"\$HOME\" '.mode == \"folder\" and \
+         .folderDirectory == (\$home + \"/Pictures\")' && \
+     jq -e --arg home \"\$HOME\" '.folder == (\$home + \"/Pictures/lab-walls\")' \
+       \"$state_root/wallpaper-command-center.json\"" || return 1
+
+  ssh_session "mv \"\$HOME/Pictures/lab-walls-away\" \"\$HOME/Pictures/lab-walls\"" || return 1
+  press esc || return 1
+  ssh_session "sleep 1" || return 1
+  press ctrl-o || return 1
+  wait_for_guest_state "and the next visit lands in it again" 30 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e --arg home \"\$HOME\" '.mode == \"folder\" and \
+         .folderDirectory == (\$home + \"/Pictures/lab-walls\")'" || return 1
+  press esc || return 1
+  wait_for_guest_state "folder browsing closes back onto the local wallpapers" 25 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e '.opened == true and .mode == \"wallpapers\" and .images > 0'" || return 1
+
   press ctrl-b || return 1
   wait_for_guest_state "Ctrl+B enters the built-in open wallpaper catalog" 55 ssh_session \
     "test -d \"\$HOME/.cache/omarchy-theme-manager/wallpaper-thumbs\" && \
@@ -348,5 +474,5 @@ omarchy_host_test() {
       'all(.[]; .id != \"io.github.mtolhuys.theme-manager\") and \
        any(.[]; .id == \"omarchy.image-picker\" and .enabled == true)'" || return 1
 
-  printf 'ok - favorites, live palette, theme catalog, open wallpaper browsing, and plugin lifecycle completed\n'
+  printf 'ok - favorites, live palette, theme catalog, folder browsing, open wallpaper browsing, and plugin lifecycle completed\n'
 }

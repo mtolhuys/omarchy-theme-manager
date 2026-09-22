@@ -16,11 +16,12 @@ import "ThemeCatalogModel.js" as ThemeCatalogModel
 import "WallpaperBrowserModel.js" as WallpaperBrowserModel
 import "WallpaperCommandModel.js" as WallpaperCommandModel
 import "IconBrowseModel.js" as IconBrowseModel
+import "FolderBrowseModel.js" as FolderBrowseModel
 
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.9.0"
+  readonly property string buildIdentity: "0.10.0"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   // Every program starts through Run (omakit/Run.qml) with a closed
@@ -77,6 +78,23 @@ Item {
   property var localImages: []
   property int localSelectedIndex: 0
   property string localFilterText: ""
+  // Folder browsing: any image under the user's home directory, reached from
+  // the wallpaper picker. It borrows the same local snapshot slots as
+  // Wallhaven above — the two modes exclude each other.
+  property bool folderMode: false
+  property string folderDirectory: ""
+  // The directory a listing is on its way for. The breadcrumb and the carousel
+  // keep showing the folder the user is standing in until it arrives, so the
+  // two never disagree about where that is.
+  property string folderPendingDirectory: ""
+  property string folderRememberedDirectory: ""
+  property string folderReturnTo: ""
+  // This listing was reached by walking up out of a folder that would not
+  // read, not by the user asking for it, so it must not replace the folder
+  // they are remembered in.
+  property bool folderRecovering: false
+  property bool folderShowHidden: false
+  property var folderListing: ({ rows: [], folders: 0, images: 0, truncated: false })
   property bool wallpaperPickerRequest: false
   readonly property string wallpaperCommandStatePath: Quickshell.env("HOME") + "/.config/omarchy/wallpaper-command-center.json"
   readonly property string themeMemoryStatePath: Quickshell.env("HOME") + "/.config/omarchy/theme-manager-memory.json"
@@ -147,6 +165,7 @@ Item {
         label: favoritesOnly ? "★ Favorites" : "All"
       }
     ]
+    options.push({ value: "folder", label: "Open folder…" })
     if (currentThemeName)
       options.push({ value: "reset", label: "Reset wallpaper" })
     if (canRemoveInstalledWallpaper)
@@ -154,9 +173,9 @@ Item {
     return options
   }
   readonly property bool wallpaperPickerActive: wallpaperPickerRequest
-  readonly property bool localWallpaperMode: wallpaperPickerActive && !wallhavenMode && !catalogMode && !iconsMode && !iconsBrowseMode
+  readonly property bool localWallpaperMode: wallpaperPickerActive && !wallhavenMode && !catalogMode && !iconsMode && !iconsBrowseMode && !folderMode
   readonly property bool iconsPickerActive: iconsMode || iconsBrowseMode
-  readonly property bool canOpenIconsMode: !catalogMode && !wallhavenMode && !iconsMode && !iconsBrowseMode
+  readonly property bool canOpenIconsMode: !catalogMode && !wallhavenMode && !iconsMode && !iconsBrowseMode && !folderMode
     && (wallpaperPickerActive || themeManager.themePickerActive)
   // Installed-icons carousel (not the Pling browse gallery). Do not gate on
   // themePickerActive — once iconsMode swaps the carousel off themes,
@@ -199,6 +218,13 @@ Item {
     sorting: wallhaven.sorting,
     license: wallhaven.license
   })
+  readonly property var folderBreadcrumb: FolderBrowseModel.breadcrumb(folderDirectory, homeDir)
+  readonly property string folderDisplayPath: FolderBrowseModel.displayPath(folderDirectory, homeDir)
+  readonly property string folderSummary: FolderBrowseModel.listingSummary(folderListing, filterText)
+  readonly property bool folderCanGoUp: !!FolderBrowseModel.parentOf(folderDirectory, homeDir)
+  readonly property string folderLoadingPath: FolderBrowseModel.displayPath(
+    folderPendingDirectory || folderDirectory,
+    homeDir)
   readonly property string catalogFilterSummary: ThemeCatalogModel.catalogFilterSummary(catalogFilters)
   readonly property bool catalogFiltersActive: ThemeCatalogModel.catalogFiltersActive(catalogFilters)
   readonly property int catalogFilterActiveCount: ThemeCatalogModel.catalogFilterActiveCount(catalogFilters)
@@ -246,7 +272,7 @@ Item {
   property int sliceHeight: 432
   property int sliceSpacing: -30
   property int skewOffset: 28
-  property int bottomChromeHeight: wallhavenMode || catalogMode || iconsMode || iconsBrowseMode
+  property int bottomChromeHeight: wallhavenMode || catalogMode || iconsMode || iconsBrowseMode || folderMode
     ? (catalogMode ? 170 : 150)
     : (wallpaperPickerActive
         ? 96
@@ -307,13 +333,18 @@ Item {
         ? "catalog"
         : (wallhavenMode
             ? "wallhaven"
-            : (iconsBrowseMode
+            : (folderMode
+                ? "folder"
+                : (iconsBrowseMode
                 ? "icons-browse"
                 : (iconsMode
                 ? "icons"
                 : (themeManager.themePickerActive
                     ? "themes"
-                    : (wallpaperPickerActive ? "wallpapers" : "images"))))),
+                    : (wallpaperPickerActive ? "wallpapers" : "images")))))),
+      folderDirectory: folderDirectory,
+      folderShowHidden: folderShowHidden,
+      folderCanGoUp: folderCanGoUp,
       hasWallpaperMemory: hasWallpaperMemory,
       hasIconsMemory: hasIconsMemory,
       currentIconTheme: currentIconTheme,
@@ -361,6 +392,7 @@ Item {
     if (!opened) {
       if (collectionsSheet.opened) collectionsSheet.cancel()
       if (catalogMode) leaveCatalog(false)
+      if (folderMode) leaveFolderBrowser(false)
       if (wallhavenMode) leaveWallhaven(false)
       if (iconsBrowseMode) leaveIconsBrowse(false)
       if (iconsMode) leaveIcons(false)
@@ -452,11 +484,18 @@ Item {
   function loadWallpaperCommandState(raw) {
     const state = WallpaperCommandModel.parseState(raw, wallpaperFavoriteContext())
     favoriteIds = state.favorites
+    // Where folder browsing last stood, so reopening resumes there instead of
+    // starting the walk from ~ again.
+    folderRememberedDirectory = FolderBrowseModel.normalizeDir(state.folder, homeDir)
+    folderShowHidden = state.showHidden === true
     if (localWallpaperMode && imageArray.length > 0) reorderWallpapers()
   }
 
   function saveWallpaperCommandState() {
-    wallpaperCommandState.save(WallpaperCommandModel.serializeState(favoriteIds))
+    wallpaperCommandState.save(WallpaperCommandModel.serializeState(
+      favoriteIds,
+      folderRememberedDirectory,
+      folderShowHidden))
   }
 
   function loadThemeMemoryState(raw) {
@@ -659,7 +698,7 @@ Item {
 
     if (purpose === "finish") {
       rememberWallpaperSelection(installed)
-      if (wallhavenMode)
+      if (wallhavenMode || folderMode)
         syncInstalledWallpaperIntoLocalSnapshot(installed)
       // Belt-and-suspenders: menu-images waiter also bg-sets after the selection
       // file is written. Direct set covers the intermittent case where accept ran
@@ -699,7 +738,7 @@ Item {
       }
     }
 
-    if (wallhavenMode)
+    if (wallhavenMode || folderMode)
       syncInstalledWallpaperIntoLocalSnapshot(installed)
 
     if (localWallpaperMode)
@@ -968,6 +1007,7 @@ Item {
     const next = String(action || "").trim()
     if (next === "save") root.toggleCurrentFavorite()
     else if (next === "favorites") root.toggleFavoritesOnly()
+    else if (next === "folder") root.openFolderBrowser()
     else if (next === "reset") root.resetWallpaperDefaults()
     else if (next === "remove") root.removeCurrentInstalledWallpaper()
     Qt.callLater(root.focusPicker)
@@ -1267,6 +1307,8 @@ Item {
     if (!opened || !wallpaperPickerActive) return ""
     const item = currentItem()
     if (!item) return ""
+    // A folder card's filePath is a directory; only its preview is an image.
+    if (folderMode && item.entryKind !== "image") return String(item.thumbnailPath || "")
     return String(item.thumbnailPath || item.filePath || "")
   }
 
@@ -1304,6 +1346,14 @@ Item {
       return parts.join("  ·  ")
     }
 
+    if (folderMode) {
+      if (item.entryKind === "parent")
+        return "Up to " + String(item.displayName || "…")
+      if (item.entryKind === "folder")
+        return String(item.fileName || "") + "  ·  " + FolderBrowseModel.imageCountLabel(item.imageCount)
+      return String(item.displayName || item.fileName || "")
+    }
+
     if (item.displayName) return String(item.displayName)
     return labelForPath(item.filePath)
   }
@@ -1323,6 +1373,7 @@ Item {
 
   function openCatalog() {
     if (wallhavenMode
+        || folderMode
         || iconsMode
         || !themeManager.themePickerActive
         || !themeManager.inventoryReady
@@ -1354,7 +1405,7 @@ Item {
   }
 
   function filterTypingActive() {
-    return wallhavenMode || iconsBrowseMode || iconsMode || catalogMode || filterable
+    return wallhavenMode || folderMode || iconsBrowseMode || iconsMode || catalogMode || filterable
   }
 
   function canUseLetterShortcut(event) {
@@ -1375,7 +1426,7 @@ Item {
 
   function openThemesSwitcher() {
     if (themeManager.themePickerActive && !wallpaperPickerActive && !iconsMode && !iconsBrowseMode) return
-    if (!(localWallpaperMode || wallhavenMode || iconsMode || iconsBrowseMode)) return
+    if (!(localWallpaperMode || wallhavenMode || folderMode || iconsMode || iconsBrowseMode)) return
     switcherRun.command = [omarchyBin + "/omarchy-theme-switcher"]
     switcherRun.start()
     cancel()
@@ -1398,7 +1449,7 @@ Item {
   }
 
   function enterCatalog(rows) {
-    if (wallhavenMode || iconsMode || iconsBrowseMode || !Array.isArray(rows) || rows.length === 0) return
+    if (wallhavenMode || folderMode || iconsMode || iconsBrowseMode || !Array.isArray(rows) || rows.length === 0) return
 
     if (!catalogMode) {
       catalogPreviousImages = imageArray
@@ -1440,7 +1491,7 @@ Item {
   }
 
   function removeThemeFromRows(name) {
-    if (catalogMode || wallhavenMode || iconsMode || iconsBrowseMode) return
+    if (catalogMode || wallhavenMode || folderMode || iconsMode || iconsBrowseMode) return
 
     const previousIndex = selectedIndex
     const nextImages = ThemeManagerModel.withoutNamedImage(imageArray, name)
@@ -1672,7 +1723,7 @@ Item {
   }
 
   function openWallhaven() {
-    if (catalogMode || iconsMode || iconsBrowseMode || !wallpaperPickerActive || wallhavenMode) return
+    if (catalogMode || iconsMode || iconsBrowseMode || folderMode || !wallpaperPickerActive || wallhavenMode) return
 
     localImages = imageArray
     localSelectedIndex = selectedIndex
@@ -1707,6 +1758,157 @@ Item {
     localFilterText = ""
 
     if (restoreFocus !== false) Qt.callLater(focusPicker)
+  }
+
+  // --- Folder browsing -----------------------------------------------------
+  // The wallpaper picker, pointed at the user's own files. The carousel keeps
+  // doing what it already does; only the rows change, and an image chosen here
+  // leaves through exactly the path a catalog download leaves through, so it
+  // is copied into the theme's backgrounds and remembered like any other.
+
+  function openFolderBrowser() {
+    if (catalogMode || wallhavenMode || iconsMode || iconsBrowseMode || folderMode) return
+    if (!wallpaperPickerActive) return
+
+    localImages = imageArray
+    localSelectedIndex = selectedIndex
+    localFilterText = filterText
+    folderMode = true
+    filterSheet.opened = false
+    catalogFilterSheet.opened = false
+    imageArray = []
+    selectedIndex = 0
+    filterText = ""
+    imagesLoaded = true
+    layoutSettled = true
+    folderListing = { rows: [], folders: 0, images: 0, truncated: false }
+    folderDirectory = ""
+    folderReturnTo = ""
+    folderRecovering = false
+    folderBrowse.showHidden = folderShowHidden
+    openFolder(FolderBrowseModel.startDir(folderRememberedDirectory, homeDir))
+    Qt.callLater(focusPicker)
+  }
+
+  function leaveFolderBrowser(restoreFocus) {
+    if (!folderMode) return
+
+    folderBrowse.reset()
+    folderMode = false
+    folderListing = { rows: [], folders: 0, images: 0, truncated: false }
+    folderPendingDirectory = ""
+    folderReturnTo = ""
+    folderRecovering = false
+    imageArray = localImages
+    selectedIndex = Math.min(localSelectedIndex, Math.max(0, imageArray.length - 1))
+    filterText = localFilterText
+    localImages = []
+    localSelectedIndex = 0
+    localFilterText = ""
+
+    if (restoreFocus !== false) Qt.callLater(focusPicker)
+  }
+
+  function openFolder(path) {
+    const target = FolderBrowseModel.normalizeDir(path, homeDir)
+    if (!folderMode || !target) return
+    filterText = ""
+    folderPendingDirectory = target
+    folderBrowse.open(target)
+  }
+
+  function folderUp() {
+    const parent = FolderBrowseModel.parentOf(folderDirectory, homeDir)
+    if (!parent) return
+    // Coming back up, the folder just left is the one to highlight.
+    folderReturnTo = folderDirectory
+    openFolder(parent)
+  }
+
+  // The chip flips with the listing, so this needs no toast over the
+  // breadcrumb it would sit on; the filter survives the reread.
+  function toggleFolderHidden() {
+    if (!folderMode || !folderDirectory) return
+    folderShowHidden = !folderShowHidden
+    folderBrowse.showHidden = folderShowHidden
+    saveWallpaperCommandState()
+    folderPendingDirectory = folderDirectory
+    folderBrowse.open(folderDirectory)
+  }
+
+  function acceptFolderListing(directory, listing) {
+    if (!folderMode) return
+
+    const returnTo = folderReturnTo
+    const recovered = folderRecovering
+    folderReturnTo = ""
+    folderRecovering = false
+    folderPendingDirectory = ""
+    folderDirectory = directory
+    folderListing = listing
+    replaceImageArray(listing.rows)
+    selectedIndex = FolderBrowseModel.initialIndex(listing.rows, returnTo)
+    imagesLoaded = true
+    layoutSettled = true
+
+    // A folder the user walked into is worth remembering; one they were put
+    // in because their own folder would not read is not, or a single failed
+    // read would cost them their place for good.
+    if (!recovered && folderRememberedDirectory !== directory) {
+      folderRememberedDirectory = directory
+      saveWallpaperCommandState()
+    }
+
+    Qt.callLater(focusPicker)
+  }
+
+  function acceptFolderFailure(directory, message) {
+    if (!folderMode) return
+
+    folderReturnTo = ""
+    folderPendingDirectory = ""
+
+    // The folder the user is standing in stays on screen; only a failure with
+    // nowhere to fall back to empties the carousel.
+    if (folderDirectory) {
+      showStatus(String(message || "This folder could not be read"))
+      Qt.callLater(focusPicker)
+      return
+    }
+
+    // Opening, and the remembered folder would not read: it may have been
+    // renamed, unplugged or be briefly unreadable. Step up one level at a
+    // time instead of dropping the user back at home, quietly, and leave the
+    // remembered folder exactly where it is — losing your place is worse than
+    // one folder that did not open, and the next visit tries it again.
+    const parent = FolderBrowseModel.parentOf(directory, homeDir)
+    if (parent) {
+      folderRecovering = true
+      openFolder(parent)
+      return
+    }
+
+    showStatus(String(message || "This folder could not be read"))
+    folderListing = { rows: [], folders: 0, images: 0, truncated: false }
+    replaceImageArray([])
+    imagesLoaded = true
+    layoutSettled = true
+    Qt.callLater(focusPicker)
+  }
+
+  // The chosen file leaves through finishSelection, which already copies a
+  // path outside the theme's backgrounds into them and remembers it.
+  function chooseFolderImage(path) {
+    const target = ThemeMemoryModel.safePath(path)
+    if (!target) return
+    // The folder a wallpaper was taken from is the one worth coming back to.
+    // It is written here, before the picker starts closing, rather than left
+    // to whatever listing happened to open it.
+    if (folderDirectory && folderRememberedDirectory !== folderDirectory) {
+      folderRememberedDirectory = folderDirectory
+      saveWallpaperCommandState()
+    }
+    finishSelection(target)
   }
 
   function acceptWallhavenResults(rows, append) {
@@ -1798,11 +2000,21 @@ Item {
       return
     }
 
+    if (folderMode) {
+      const item = currentItem()
+      if (!item || folderBrowse.loading) return
+      if (item.entryKind === "parent") folderUp()
+      else if (FolderBrowseModel.isFolderEntry(item)) openFolder(item.filePath)
+      else chooseFolderImage(item.filePath)
+      return
+    }
+
     finishSelection(currentPath())
   }
 
   function cancel() {
     if (catalogMode) leaveCatalog(false)
+    if (folderMode) leaveFolderBrowser(false)
     if (wallhavenMode) leaveWallhaven(false)
     if (iconsBrowseMode) leaveIconsBrowse(false)
     if (iconsMode) leaveIcons(false)
@@ -1818,6 +2030,7 @@ Item {
 
   function closeSelector(nextDoneFile) {
     if (catalogMode) leaveCatalog(false)
+    if (folderMode) leaveFolderBrowser(false)
     if (wallhavenMode) leaveWallhaven(false)
     if (iconsBrowseMode) leaveIconsBrowse(false)
     if (iconsMode) leaveIcons(false)
@@ -1863,6 +2076,7 @@ Item {
     // Warm the Icons chip before first paint.
     ensureFooterIconsReady()
     if (catalogMode) leaveCatalog(false)
+    if (folderMode) leaveFolderBrowser(false)
     if (wallhavenMode) leaveWallhaven(false)
     if (iconsBrowseMode) leaveIconsBrowse(false)
     if (iconsMode) leaveIcons(false)
@@ -2448,6 +2662,15 @@ Item {
     onFocusRequested: Qt.callLater(root.focusPicker)
   }
 
+  FolderBrowseController {
+    id: folderBrowse
+    homeDir: root.homeDir
+    scriptPath: root.pluginScriptPath("browse-folder.sh")
+    helperEnvironment: root.helperEnvironment
+    onListingReady: function(directory, listing) { root.acceptFolderListing(directory, listing) }
+    onListingFailed: function(directory, message) { root.acceptFolderFailure(directory, message) }
+  }
+
   ThemeManagerController {
     id: themeManager
     selectedPath: root.currentPath()
@@ -2624,17 +2847,21 @@ Item {
           event.accepted = true
         } else if (event.key === Qt.Key_T
                    && root.canUseLetterShortcut(event)
-                   && (root.localWallpaperMode || root.wallhavenMode || root.iconsMode || root.iconsBrowseMode)) {
+                   && (root.localWallpaperMode || root.wallhavenMode || root.folderMode || root.iconsMode || root.iconsBrowseMode)) {
           // Ctrl+T always; bare T only when filter typing is inactive.
           if (root.iconsBrowseMode) root.leaveIconsBrowse(false)
           if (root.iconsMode) root.leaveIcons(false)
           if (root.wallhavenMode) root.leaveWallhaven(false)
+          if (root.folderMode) root.leaveFolderBrowser(false)
           root.openThemesSwitcher()
           event.accepted = true
         } else if (event.key === Qt.Key_W
                    && root.canUseLetterShortcut(event)) {
           if (root.wallhavenMode) {
             root.leaveWallhaven(true)
+            event.accepted = true
+          } else if (root.folderMode) {
+            root.leaveFolderBrowser(true)
             event.accepted = true
           } else if (root.catalogMode) {
             root.leaveCatalog(false)
@@ -2652,6 +2879,16 @@ Item {
                    && root.canUseLetterShortcut(event)
                    && root.localWallpaperMode) {
           wallpaperActionsDropdown.toggle()
+          event.accepted = true
+        } else if (event.key === Qt.Key_O
+                   && root.canUseLetterShortcut(event)
+                   && root.localWallpaperMode) {
+          root.openFolderBrowser()
+          event.accepted = true
+        } else if (event.key === Qt.Key_H
+                   && (event.modifiers & Qt.ControlModifier) !== 0
+                   && root.folderMode) {
+          root.toggleFolderHidden()
           event.accepted = true
         } else if (event.key === Qt.Key_N
                    && (event.modifiers & Qt.ControlModifier) !== 0
@@ -2694,6 +2931,8 @@ Item {
             root.updateFilter("")
           } else if (root.wallhavenMode) {
             root.leaveWallhaven(true)
+          } else if (root.folderMode) {
+            root.leaveFolderBrowser(true)
           } else if (root.iconsBrowseMode) {
             root.leaveIconsBrowse(true)
           } else if (root.iconsMode) {
@@ -2707,7 +2946,15 @@ Item {
         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
           root.applySelected()
           event.accepted = true
-        } else if ((root.wallhavenMode || root.iconsBrowseMode || root.iconsMode || root.catalogMode || root.filterable) && Util.editsFilter(event, root.filterText)) {
+        } else if (root.folderMode
+                   && event.key === Qt.Key_Up
+                   && (event.modifiers & Qt.AltModifier) !== 0) {
+          root.folderUp()
+          event.accepted = true
+        } else if (root.folderMode && event.key === Qt.Key_Backspace && !root.filterText) {
+          root.folderUp()
+          event.accepted = true
+        } else if ((root.wallhavenMode || root.folderMode || root.iconsBrowseMode || root.iconsMode || root.catalogMode || root.filterable) && Util.editsFilter(event, root.filterText)) {
           root.updateFilter(Util.editedFilter(event, root.filterText))
           event.accepted = true
         } else if (root.themeGridActive
@@ -2730,7 +2977,7 @@ Item {
         } else if (event.key === Qt.Key_Right || event.key === Qt.Key_Tab) {
           root.selectAdjacent(1)
           event.accepted = true
-        } else if ((root.wallhavenMode || root.iconsBrowseMode || root.iconsMode || root.catalogMode || root.filterable)
+        } else if ((root.wallhavenMode || root.folderMode || root.iconsBrowseMode || root.iconsMode || root.catalogMode || root.filterable)
                    && event.text
                    && event.text.length === 1
                    && event.text.charCodeAt(0) >= 32
@@ -2856,6 +3103,25 @@ Item {
           }
         }
 
+        Text {
+          anchors.centerIn: parent
+          visible: root.folderMode
+            && root.imageArray.length > 0
+            && root.matchingIndices.length === 0
+          width: root.expandedWidth
+          text: root.filterText
+            ? "Nothing in " + root.folderDisplayPath + " matches “" + root.filterText + "”"
+            : "This folder has no images or subfolders"
+          color: root.foreground
+          style: Text.Outline
+          styleColor: root.chromeOutline
+          font.pixelSize: Style.font.title
+          font.weight: Font.DemiBold
+          horizontalAlignment: Text.AlignHCenter
+          wrapMode: Text.Wrap
+          textFormat: Text.PlainText
+        }
+
         Repeater {
           id: carouselRepeater
 
@@ -2895,6 +3161,9 @@ Item {
             readonly property string fileName: imageData ? imageData.fileName : ""
             readonly property string thumbnailPath: imageData ? imageData.thumbnailPath : ""
 
+            readonly property bool folderCard: root.folderMode
+              && !!imageData
+              && imageData.entryKind !== "image"
             readonly property bool matched: imageIndex >= 0
             readonly property bool selected: root.themeGridActive
               ? (gridCell !== null && gridCell.position === themeCollections.gridCursor)
@@ -3003,9 +3272,133 @@ Item {
                       : Util.fileUrl(item.thumbnailPath))
                   : ""
                 fillMode: Image.PreserveAspectCrop
-                asynchronous: root.wallhavenMode || root.catalogMode || root.iconsBrowseMode
+                asynchronous: root.wallhavenMode || root.catalogMode || root.iconsBrowseMode || root.folderMode
                 cache: root.wallhavenMode || root.catalogMode || root.iconsBrowseMode
+                // Folder browsing meets whatever the user keeps on disk, and
+                // a camera original is far larger than any card here. The
+                // decode is capped rather than the file refused.
+                sourceSize.height: root.folderMode ? root.expandedHeight * 2 : -1
                 smooth: true
+              }
+
+              // A folder, or the step out of one. A directory that holds
+              // wallpapers shows the first of them through a wash and names
+              // itself on a plate; one with nothing to show becomes the plate.
+              Item {
+                id: folderPanel
+                anchors.fill: parent
+                visible: item.folderCard
+
+                readonly property bool hasPreview: !!item.thumbnailPath
+                readonly property bool isParent: !!item.imageData
+                  && item.imageData.entryKind === "parent"
+                readonly property int entryCount: item.imageData
+                  ? (item.imageData.imageCount || 0)
+                  : 0
+                readonly property string glyphKind: isParent
+                  ? "up"
+                  : (entryCount > 0 ? "folder" : "empty")
+
+                Rectangle {
+                  anchors.fill: parent
+                  color: folderPanel.hasPreview
+                    ? Util.alpha(root.livePaletteBase, item.selected ? 0.38 : 0.6)
+                    : root.readableBackdrop(root.livePaletteBase, item.selected ? 0.82 : 0.9)
+                }
+
+                // The glyph carries the whole card while there is no preview
+                // to carry it, and shrinks to a marker once there is one.
+                Column {
+                  anchors.centerIn: parent
+                  visible: !folderPanel.hasPreview || !item.selected
+                  spacing: Style.space(item.selected ? 16 : 8)
+                  width: parent.width - Style.space(item.selected ? 48 : 16)
+
+                  FolderGlyph {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    kind: folderPanel.glyphKind
+                    accent: root.livePaletteAccent
+                    foreground: root.foreground
+                    size: item.selected ? Style.space(92) : Style.space(40)
+                  }
+
+                  Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width
+                    visible: item.selected
+                    text: folderPanel.isParent
+                      ? "Up one folder"
+                      : String((item.imageData && item.imageData.fileName) || "")
+                    color: root.foreground
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideMiddle
+                    font.pixelSize: Style.font.title
+                    font.weight: Font.DemiBold
+                    textFormat: Text.PlainText
+                  }
+
+                  Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width
+                    visible: item.selected
+                    text: folderPanel.isParent
+                      ? String((item.imageData && item.imageData.displayName) || "")
+                      : FolderBrowseModel.imageCountLabel(folderPanel.entryCount)
+                    color: root.foreground
+                    opacity: 0.8
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideMiddle
+                    font.pixelSize: Style.font.body
+                    textFormat: Text.PlainText
+                  }
+                }
+
+                // Over a preview the name needs its own plate, the way the
+                // grid captions do, so it stays readable on any image.
+                Rectangle {
+                  visible: folderPanel.hasPreview && item.selected
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  anchors.bottom: parent.bottom
+                  anchors.bottomMargin: Style.space(22)
+                  width: folderCaption.implicitWidth + Style.space(28)
+                  height: folderCaption.implicitHeight + Style.space(16)
+                  radius: height / 2
+                  color: root.chromeFill
+                  border.width: 1
+                  border.color: Util.alpha(root.livePaletteAccent, 0.8)
+
+                  Row {
+                    id: folderCaption
+                    anchors.centerIn: parent
+                    spacing: Style.space(10)
+
+                    FolderGlyph {
+                      anchors.verticalCenter: parent.verticalCenter
+                      kind: folderPanel.glyphKind
+                      accent: root.livePaletteAccent
+                      foreground: root.foreground
+                      size: Style.space(26)
+                    }
+
+                    Text {
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: String((item.imageData && item.imageData.fileName) || "")
+                      color: root.foreground
+                      font.pixelSize: Style.font.title
+                      font.weight: Font.DemiBold
+                      textFormat: Text.PlainText
+                    }
+
+                    Text {
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: FolderBrowseModel.imageCountLabel(folderPanel.entryCount)
+                      color: root.foreground
+                      opacity: 0.8
+                      font.pixelSize: Style.font.body
+                      textFormat: Text.PlainText
+                    }
+                  }
+                }
               }
 
               Item {
@@ -3077,7 +3470,11 @@ Item {
               Text {
                 anchors.centerIn: parent
                 visible: item.selected
-                  && (root.wallhavenMode || root.catalogMode)
+                  && (root.wallhavenMode
+                      || root.catalogMode
+                      || (root.folderMode
+                          && !!item.imageData
+                          && item.imageData.entryKind === "image"))
                   && (!item.thumbnailPath || image.status === Image.Error)
                 text: "Preview unavailable"
                 color: root.foreground
@@ -3158,7 +3555,7 @@ Item {
               }
 
               Rectangle {
-                visible: item.selected && root.livePaletteReady
+                visible: item.selected && root.livePaletteReady && !item.folderCard
                 anchors.left: parent.left
                 anchors.bottom: parent.bottom
                 anchors.margins: Style.space(14)
@@ -3233,7 +3630,7 @@ Item {
 
       Item {
         id: footer
-        visible: root.showLabels || root.wallpaperPickerActive || root.iconsMode || root.iconsBrowseMode
+        visible: root.showLabels || root.wallpaperPickerActive || root.iconsMode || root.iconsBrowseMode || root.folderMode
         anchors.top: carousel.bottom
         anchors.topMargin: Style.space(16)
         anchors.horizontalCenter: carousel.horizontalCenter
@@ -3244,6 +3641,8 @@ Item {
           defaultsControls.implicitHeight,
           wallhavenBrowseButton.implicitHeight,
           wallhavenBackButton.implicitHeight,
+          folderBrowseButton.implicitHeight,
+          folderBackButton.implicitHeight,
           iconsBrowseButton.implicitHeight,
           iconsBackButton.implicitHeight,
           iconsBrowseOcsButton.implicitHeight,
@@ -3276,6 +3675,8 @@ Item {
             width = Math.max(width, catalogBackButton.implicitWidth)
           if (wallhavenBackButton.visible)
             width = Math.max(width, wallhavenBackButton.implicitWidth)
+          if (folderBackButton.visible)
+            width = Math.max(width, folderBackButton.implicitWidth)
           if (iconsBackButton.visible)
             width = Math.max(width, iconsBackButton.implicitWidth)
           if (iconsBrowseBackButton.visible)
@@ -3289,6 +3690,14 @@ Item {
           if (wallhavenBrowseButton.visible) {
             if (width > 0) width += Style.space(8)
             width += wallhavenBrowseButton.implicitWidth
+          }
+          if (folderBrowseButton.visible) {
+            if (width > 0) width += Style.space(8)
+            width += folderBrowseButton.implicitWidth
+          }
+          if (folderUpButton.visible) {
+            if (width > 0) width += Style.space(8)
+            width += folderUpButton.implicitWidth
           }
           if (iconsBrowseButton.visible) {
             if (width > 0) width += Style.space(8)
@@ -3556,7 +3965,7 @@ Item {
 
         Text {
           id: selectedLabel
-          visible: root.showLabels || root.wallhavenMode || root.wallpaperPickerActive || root.iconsMode || root.iconsBrowseMode
+          visible: root.showLabels || root.wallhavenMode || root.folderMode || root.wallpaperPickerActive || root.iconsMode || root.iconsBrowseMode
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.leftMargin: footer.leftReserved > 0 ? footer.leftReserved + Style.space(16) : 0
@@ -3574,8 +3983,66 @@ Item {
         }
 
         Button {
+          id: folderBrowseButton
+          visible: root.localWallpaperMode
+          anchors.verticalCenter: parent.verticalCenter
+          x: {
+            let offset = 0
+            if (iconsBrowseButton.visible) offset += iconsBrowseButton.width + Style.space(8)
+            if (uninstallButton.visible) offset += uninstallButton.width + Style.space(8)
+            if (wallhavenBrowseButton.visible) offset += wallhavenBrowseButton.width + Style.space(8)
+            return parent.width - width - offset
+          }
+          text: "Open folder"
+          tooltipText: "Pick a wallpaper from your own files (O / Ctrl+O)"
+          foreground: root.foreground
+          accent: root.livePaletteAccent
+          bordered: true
+          background: root.chromeFill
+          horizontalPadding: Style.space(12)
+          verticalPadding: Style.space(7)
+          onClicked: root.openFolderBrowser()
+        }
+
+        Button {
+          id: folderUpButton
+          visible: root.folderMode
+          enabled: root.folderCanGoUp && !folderBrowse.loading
+          anchors.verticalCenter: parent.verticalCenter
+          anchors.right: parent.right
+          text: "Up"
+          tooltipText: "Go to the folder above (Backspace / Alt+↑)"
+          foreground: root.foreground
+          accent: root.livePaletteAccent
+          bordered: true
+          background: root.chromeFill
+          horizontalPadding: Style.space(12)
+          verticalPadding: Style.space(7)
+          onClicked: {
+            root.folderUp()
+            Qt.callLater(root.focusPicker)
+          }
+        }
+
+        Button {
+          id: folderBackButton
+          visible: root.folderMode
+          anchors.left: parent.left
+          anchors.verticalCenter: parent.verticalCenter
+          text: "Back"
+          tooltipText: "Return to this theme's wallpapers (Escape)"
+          foreground: root.foreground
+          accent: Color.accent
+          bordered: true
+          background: root.chromeFill
+          horizontalPadding: Style.space(12)
+          verticalPadding: Style.space(7)
+          onClicked: root.leaveFolderBrowser(true)
+        }
+
+        Button {
           id: wallhavenBrowseButton
-          visible: root.wallpaperPickerActive && !root.wallhavenMode && !root.iconsMode && !root.iconsBrowseMode
+          visible: root.wallpaperPickerActive && !root.wallhavenMode && !root.folderMode && !root.iconsMode && !root.iconsBrowseMode
           anchors.verticalCenter: parent.verticalCenter
           x: {
             let offset = 0
@@ -3908,6 +4375,7 @@ Item {
           id: uninstallButton
           visible: !root.catalogMode
             && !root.wallhavenMode
+            && !root.folderMode
             && !root.iconsMode
             && !root.iconsBrowseMode
             && themeManager.themePickerActive
@@ -4007,6 +4475,53 @@ Item {
             : "Type to search open wallpapers"
         }
         color: wallhaven.errorMessage ? Color.urgent : root.foreground
+        opacity: 0.9
+        style: Text.Outline
+        styleColor: root.chromeOutline
+        font.pixelSize: Style.font.body
+        horizontalAlignment: Text.AlignHCenter
+        elide: Text.ElideRight
+        textFormat: Text.PlainText
+      }
+
+      FolderPathBar {
+        id: folderPathBar
+        visible: root.folderMode
+        anchors.top: footer.bottom
+        anchors.topMargin: Style.space(8)
+        anchors.horizontalCenter: carousel.horizontalCenter
+        height: implicitHeight
+        segments: root.folderBreadcrumb
+        summary: root.folderSummary
+        showHidden: root.folderShowHidden
+        busy: folderBrowse.loading
+        foreground: root.foreground
+        accent: root.livePaletteAccent
+        onNavigateRequested: function(path) {
+          root.openFolder(path)
+          Qt.callLater(root.focusPicker)
+        }
+        onHiddenToggleRequested: {
+          root.toggleFolderHidden()
+          Qt.callLater(root.focusPicker)
+        }
+      }
+
+      Text {
+        visible: root.folderMode
+        anchors.top: folderPathBar.bottom
+        anchors.topMargin: Style.space(8)
+        anchors.horizontalCenter: carousel.horizontalCenter
+        width: root.expandedWidth
+        text: {
+          if (folderBrowse.errorMessage) return folderBrowse.errorMessage
+          const item = root.currentItem()
+          if (item && item.entryKind === "image")
+            return "Enter sets this as the wallpaper for " + (root.currentThemeName || "this theme")
+          if (item && item.entryKind === "parent") return "Enter goes back up  ·  Type to filter"
+          return "Enter opens the folder  ·  Backspace goes up  ·  Type to filter"
+        }
+        color: folderBrowse.errorMessage ? Color.urgent : root.foreground
         opacity: 0.9
         style: Text.Outline
         styleColor: root.chromeOutline
@@ -4184,6 +4699,66 @@ Item {
         selectedText: Color.accent
         onCanceled: iconBrowse.cancelInstall()
         onConfirmed: iconBrowse.confirmInstall()
+      }
+    }
+
+    Item {
+      visible: root.opened
+        && root.imagesLoaded
+        && root.layoutSettled
+        && root.folderMode
+        && root.imageArray.length === 0
+      width: root.expandedWidth
+      height: 300
+      anchors.centerIn: parent
+
+      MouseArea { anchors.fill: parent; onClicked: {} }
+
+      Text {
+        id: folderEmptyTitle
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenterOffset: -24
+        text: folderBrowse.errorMessage
+          ? folderBrowse.errorMessage
+          : (folderBrowse.loading
+              ? "Reading " + root.folderLoadingPath + "…"
+              : "Nothing to show in " + root.folderLoadingPath)
+        color: folderBrowse.errorMessage ? Color.urgent : root.foreground
+        font.pixelSize: Style.font.title
+        font.weight: Font.DemiBold
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.Wrap
+        textFormat: Text.PlainText
+      }
+
+      Text {
+        id: folderEmptyHint
+        anchors.top: folderEmptyTitle.bottom
+        anchors.topMargin: Style.space(10)
+        anchors.horizontalCenter: parent.horizontalCenter
+        text: root.folderShowHidden
+          ? "Escape returns to this theme's wallpapers"
+          : "Ctrl+H also lists hidden files  ·  Escape returns to this theme's wallpapers"
+        color: root.foreground
+        opacity: 0.8
+        font.pixelSize: Style.font.body
+        textFormat: Text.PlainText
+      }
+
+      Button {
+        anchors.top: folderEmptyHint.bottom
+        anchors.topMargin: Style.space(16)
+        anchors.horizontalCenter: parent.horizontalCenter
+        text: "Back"
+        foreground: root.foreground
+        accent: Color.accent
+        bordered: true
+        background: root.chromeFill
+        horizontalPadding: Style.space(12)
+        verticalPadding: Style.space(7)
+        onClicked: root.leaveFolderBrowser(true)
       }
     }
 

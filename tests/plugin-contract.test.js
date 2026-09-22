@@ -9,7 +9,7 @@ const read = (path) => readFile(join(process.cwd(), path), "utf8")
 test("keeps the published Theme Manager identity as the sole picker clone", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   assert.equal(manifest.id, "io.github.mtolhuys.theme-manager")
-  assert.equal(manifest.version, "0.9.0")
+  assert.equal(manifest.version, "0.10.0")
   assert.deepEqual(manifest.kinds, ["overlay"])
   assert.match(manifest.entryPoints.overlay, /^v[0-9]{4}\/ImagePicker\.qml$/)
   assert.equal(manifest.omarchy.clonedFrom, "omarchy.image-picker")
@@ -63,7 +63,11 @@ test("versions the complete QML and JavaScript runtime graph", async () => {
     "IconBrowseFilterSheet.qml",
     "ThemeCollectionsController.qml",
     "ThemeCollectionsModel.js",
-    "ThemeCollectionsSheet.qml"
+    "ThemeCollectionsSheet.qml",
+    "FolderBrowseController.qml",
+    "FolderBrowseModel.js",
+    "FolderPathBar.qml",
+    "FolderGlyph.qml"
   ]) {
     assert.ok((await read(join(runtimeDir, file))).length > 0, file)
   }
@@ -109,6 +113,7 @@ test("resolves bundled helpers without private host manifest fields", async () =
     "catalog.sh",
     "icons-browse.sh",
     "icons-inventory.sh",
+    "browse-folder.sh",
     "wallpaper-catalog.py",
     "install-theme.py",
     "install-wallpaper.sh",
@@ -628,4 +633,49 @@ test("installs external wallpapers into theme backgrounds for the local picker",
   assert.match(await read("list.sh"), /stat -c '%s'/)
   assert.match(await read("list.sh"), /4096/)
   assert.match(await read("install-wallpaper.sh"), /too small/)
+})
+
+test("keeps folder browsing inside the home directory and on the install path", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const runtimeDir = dirname(manifest.entryPoints.overlay)
+  const picker = await read(join(runtimeDir, "ImagePicker.qml"))
+  const controller = await read(join(runtimeDir, "FolderBrowseController.qml"))
+  const model = await read(join(runtimeDir, "FolderBrowseModel.js"))
+  const helper = await read("browse-folder.sh")
+
+  // Every path the browser opens is normalized against HOME in the model, in
+  // the controller, and once more by the helper against the resolved path.
+  assert.match(controller, /FolderBrowseModel\.normalizeDir\(path, homeDir\)/)
+  assert.match(model, /const normalizeDir = \(dir, home\) =>/)
+  assert.match(helper, /Directory must be under HOME/)
+  assert.match(helper, /realpath -e/)
+  assert.match(helper, /find -P /)
+
+  // The listing is bounded on every axis the helper controls.
+  assert.match(helper, /readonly max_dirs=/)
+  assert.match(helper, /readonly max_files=/)
+  assert.match(helper, /readonly max_bytes=/)
+  assert.match(controller, /maxListingBytes:\s*2 \* 1024 \* 1024/)
+
+  // A chosen file leaves through the same install path a catalog download
+  // takes, so it is copied into the theme backgrounds and remembered.
+  assert.match(picker, /function chooseFolderImage\(path\) \{[\s\S]*?finishSelection\(target\)/)
+  assert.match(picker, /scriptPath: root\.pluginScriptPath\("browse-folder\.sh"\)/)
+
+  // A folder that will not read costs one listing, never the user's place:
+  // the browser steps up a level and the remembered folder is left alone.
+  const failure = picker.match(/function acceptFolderFailure\([\s\S]*?\n  \}/)[0]
+  assert.doesNotMatch(failure, /folderRememberedDirectory\s*=/)
+  assert.match(failure, /folderRecovering = true/)
+  assert.match(failure, /FolderBrowseModel\.parentOf\(directory, homeDir\)/)
+
+  // And a listing reached that way is not written back over it.
+  const listing = picker.match(/function acceptFolderListing\([\s\S]*?\n  \}/)[0]
+  assert.match(listing, /if \(!recovered && folderRememberedDirectory !== directory\)/)
+
+  // Picking a wallpaper records its folder before the picker starts closing.
+  assert.match(
+    picker,
+    /function chooseFolderImage\([\s\S]*?folderRememberedDirectory = folderDirectory[\s\S]*?saveWallpaperCommandState\(\)/
+  )
 })

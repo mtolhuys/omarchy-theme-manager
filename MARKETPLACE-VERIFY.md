@@ -23,7 +23,44 @@ the release has been pushed.
 
 Maintainer notes (not required by form):
 
-0.9.0 — Run and Store blocks (this submission):
+0.10.0 — Pick a wallpaper from your own files (this submission):
+
+- One new feature, in the wallpaper picker only: **Open folder** turns the
+  existing carousel into a folder browser over the user's home directory, and
+  an image chosen there becomes the theme's wallpaper. It reuses the selection
+  path a catalog download already takes (`install-wallpaper.sh`), so nothing
+  new reaches the disk by a new route.
+- **One new helper process**, `browse-folder.sh`, started through Run with a
+  30-second deadline and a 2 MiB output cap. It lists one directory and writes
+  TSV to stdout. It makes no network call, writes nothing, and reads only what
+  the listing needs.
+- Its directory must resolve, through `realpath`, to `$HOME` or a path under
+  it; `/etc`, a parent of `$HOME`, and a symlink pointing out of the tree are
+  refused. The walk is `find -P`, so a symlink planted inside the tree is
+  neither listed nor followed. A listing stops at 240 directories, 600 images,
+  previews for the first 96 directories and 1 MiB of output, with a truncation
+  marker the picker reports. Entry names carrying a tab or newline are dropped
+  rather than escaped. Six tests drive the script itself against a temporary
+  `HOME`, including the symlink-escape and cap cases.
+- **No new capability, host, timer or permission.** `omakit verify` reports no
+  findings and the disposition is still `review-required` for the unchanged
+  `installer` set. `omakit inspect` against 0.9.0 (`e843cfb`):
+  file-and-state-boundary 7 → 7, argument-grammar 17 → 17, process-lifecycle
+  and unbounded-buffering still 0. environment-trust 469 → 514: 17 of the 45
+  are `browse-folder.sh`'s PATH-resolution rows, the same class every other
+  helper already carries and all of them started in Run's closed `PATH`, and
+  28 are in `tests/lab/acceptance.sh`, which ships nothing.
+- One state file gains two optional fields. `wallpaper-command-center.json`
+  records the folder browsing last stood in and whether hidden entries were
+  shown, beside the existing favorites. A 0.9.0 reader ignores both, so a
+  downgrade keeps working.
+- Verification: 144 unit tests plus the catalog tests green, lint, format and
+  `omarchy plugin validate` clean, and the acceptance suite driven through a
+  real picker on a clean Omarchy 4.0.3 VM, with twelve new steps covering the
+  browser end to end — including that a folder which will not read costs one
+  listing and never the user's remembered place.
+
+  0.9.0 — Run and Store blocks:
 
 - Internal refactor. Every program the plugin starts now goes through omakit's
   Run block, and every file it keeps of its own through the Store block. Same

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.mtolhuys.theme-manager",
   "name": "Omarchy Theme Manager",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "author": "Maarten Tolhuijs",
   "license": "MIT",
   "description": "Manage Omarchy themes, sticky per-theme wallpapers/icons, browse openly licensed desktop art, and install Pling/gnome-look.org icon themes from the native picker.",

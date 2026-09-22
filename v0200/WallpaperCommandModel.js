@@ -50,6 +50,8 @@ const normalizeFavorites = (values) => {
   return result
 }
 
+const emptyState = () => ({ version: stateVersion, favorites: [], folder: "", showHidden: false })
+
 const parseState = (raw, context = {}) => {
   try {
     const parsed = JSON.parse(stringValue(raw) || "{}")
@@ -58,15 +60,31 @@ const parseState = (raw, context = {}) => {
       parsed && parsed.version === stateVersion
         ? values
         : (Array.isArray(values) ? values : []).map((path) => favoriteIdForPath(path, context))
-    return { version: stateVersion, favorites: normalizeFavorites(migrated) }
+    const record = Array.isArray(parsed) || !parsed || typeof parsed !== "object" ? {} : parsed
+    return {
+      version: stateVersion,
+      favorites: normalizeFavorites(migrated),
+      // Where folder browsing last stood. Absent in files written before it
+      // existed, which is the same as never having browsed.
+      folder: safePath(record.folder),
+      showHidden: record.showHidden === true
+    }
   } catch (_error) {
-    return { version: stateVersion, favorites: [] }
+    return emptyState()
   }
 }
 
-const serializeState = (favorites) =>
-  JSON.stringify({ version: stateVersion, favorites: normalizeFavorites(favorites) }, null, 2) +
-  "\n"
+const serializeState = (favorites, folder, showHidden) =>
+  JSON.stringify(
+    {
+      version: stateVersion,
+      favorites: normalizeFavorites(favorites),
+      folder: safePath(folder),
+      showHidden: showHidden === true
+    },
+    null,
+    2
+  ) + "\n"
 
 const isFavorite = (favorites, path, context = {}) => {
   const target = favoriteIdForPath(path, context)
@@ -104,6 +122,7 @@ if (typeof module !== "undefined") {
     maxFavorites,
     stateVersion,
     safePath,
+    emptyState,
     favoriteIdForPath,
     normalizeFavorites,
     parseState,

@@ -14,9 +14,30 @@ test("parses bounded favorite identities and migrates legacy paths", () => {
       JSON.stringify({ favorites: ["/walls/a.jpg", "relative.jpg", "/walls/a.jpg"] }),
       context
     ),
-    { version: 2, favorites: ["path:%2Fwalls%2Fa.jpg"] }
+    { version: 2, favorites: ["path:%2Fwalls%2Fa.jpg"], folder: "", showHidden: false }
   )
   assert.deepEqual(WallpaperCommandModel.parseState("not json").favorites, [])
+})
+
+test("carries the remembered browse folder beside the favorites", () => {
+  const state = WallpaperCommandModel.parseState(
+    JSON.stringify({
+      version: 2,
+      favorites: [],
+      folder: "/home/user/Pictures/Walls",
+      showHidden: true
+    })
+  )
+
+  assert.equal(state.folder, "/home/user/Pictures/Walls")
+  assert.equal(state.showHidden, true)
+
+  // A relative folder is no folder, and a file written before browsing
+  // existed simply has none.
+  assert.equal(WallpaperCommandModel.parseState(JSON.stringify({ folder: "Pictures" })).folder, "")
+  assert.equal(WallpaperCommandModel.parseState(JSON.stringify({ version: 2 })).folder, "")
+  assert.equal(WallpaperCommandModel.parseState(JSON.stringify(["/walls/a.jpg"])).folder, "")
+  assert.equal(WallpaperCommandModel.parseState("not json").showHidden, false)
 })
 
 test("toggles favorites with the newest selection first", () => {
@@ -61,6 +82,13 @@ test("moves favorites into a stable front section without losing rows", () => {
 test("serializes normalized versioned state", () => {
   assert.deepEqual(JSON.parse(WallpaperCommandModel.serializeState(["path:%2Fwalls%2Fa.jpg"])), {
     version: 2,
-    favorites: ["path:%2Fwalls%2Fa.jpg"]
+    favorites: ["path:%2Fwalls%2Fa.jpg"],
+    folder: "",
+    showHidden: false
   })
+
+  assert.deepEqual(
+    JSON.parse(WallpaperCommandModel.serializeState([], "/home/user/Pictures", true)),
+    { version: 2, favorites: [], folder: "/home/user/Pictures", showHidden: true }
+  )
 })
