@@ -1,6 +1,7 @@
 import Quickshell
 import Quickshell.Io
 import QtQuick
+import "../omakit"
 import "ThemeManagerModel.js" as ThemeManagerModel
 
 Item {
@@ -9,6 +10,12 @@ Item {
   property string selectedPath: ""
   property bool pickerOpen: false
   property string inventoryScriptPath: ""
+  // Omarchy's bin directory, for `omarchy theme remove`; the closed
+  // environment every helper runs in, with the session variables the
+  // Omarchy command needs (ImagePicker.qml names them).
+  property string omarchyBin: ""
+  property var helperEnvironment: ({})
+  property var omarchyEnvironment: ({})
   property string currentThemeName: ""
   property var installedThemes: ({})
   property var stockThemes: ({})
@@ -66,7 +73,7 @@ Item {
     errorMessage = ""
     inventoryProc.refreshQueued = false
     inventoryProc.command = [inventoryScriptPath]
-    inventoryProc.running = true
+    inventoryProc.start()
   }
 
   function requestUninstall() {
@@ -98,8 +105,8 @@ Item {
     errorMessage = ""
     uninstallStderr = ""
     uninstallProc.targetTheme = themeName
-    uninstallProc.command = ["omarchy", "theme", "remove", themeName]
-    uninstallProc.running = true
+    uninstallProc.command = [omarchyBin + "/omarchy", "theme", "remove", themeName]
+    uninstallProc.start()
   }
 
   FileView {
@@ -110,24 +117,26 @@ Item {
     onFileChanged: reload()
   }
 
-  Process {
+  // theme-inventory.sh lists directories and reads small files: 10 s is
+  // ten times a slow disk, and the whole inventory is well under the 1 MiB
+  // cap (a few hundred themes are a few KiB).
+  Run {
     id: inventoryProc
     property bool refreshQueued: false
+    environment: root.helperEnvironment
+    deadlineMs: 10000
+    maxBytes: 1048576
+    keepBytes: 1048576
 
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        const inventory = ThemeManagerModel.themeInventoryFromText(String(text || ""))
+    onFinished: function(result) {
+      if (result.state === "ok") {
+        const inventory = ThemeManagerModel.themeInventoryFromText(String(result.stdout || ""))
         root.installedThemes = inventory.installedThemes
         root.stockThemes = inventory.stockThemes
         root.installedRepositories = inventory.installedRepositories
         root.packageIcons = inventory.packageIcons || ({})
         root.inventoryReady = true
-      }
-    }
-
-    onExited: function(exitCode) {
-      if (exitCode !== 0) {
+      } else {
         root.installedThemes = ({})
         root.stockThemes = ({})
         root.installedRepositories = []
@@ -143,25 +152,23 @@ Item {
     }
   }
 
-  Process {
+  // `omarchy theme remove` deletes a directory and restarts parts of the
+  // session; 60 s covers a theme switch on a slow machine, and its output
+  // is a few lines.
+  Run {
     id: uninstallProc
     property string targetTheme: ""
+    environment: root.omarchyEnvironment
+    deadlineMs: 60000
+    maxBytes: 65536
 
-    stderr: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        root.uninstallStderr = String(text || "").trim()
-        if (!uninstallProc.running && root.errorMessage !== "" && root.uninstallStderr !== "")
-          root.errorMessage = root.uninstallStderr
-      }
-    }
-
-    onExited: function(exitCode) {
+    onFinished: function(result) {
       const removedTheme = targetTheme
       targetTheme = ""
       root.busy = false
+      root.uninstallStderr = String(result.stderr || "").trim()
 
-      if (exitCode === 0) {
+      if (result.state === "ok") {
         root.installedThemes = ThemeManagerModel.withoutTheme(root.installedThemes, removedTheme)
         root.inventoryReady = true
         root.themeRemoved(removedTheme)

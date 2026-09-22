@@ -286,3 +286,10 @@ test("converts a legacy Alacritty palette using the same bounded snapshot", asyn
 test("download byte budgets and redirect restrictions", () => {
   run("python3", [join(process.cwd(), "tests", "theme-install-download.py")])
 })
+
+test("hostile repositories over a real socket: an oversized blob, an oversized pack, a trickle", () => {
+  // Real repositories built with git and served locally; the review's
+  // blocker at cc6486a, in its own words, proven refused before anything
+  // lands (tests/theme-install-hostile.py).
+  run("python3", ["-I", "-S", "-B", join(process.cwd(), "tests", "theme-install-hostile.py")])
+})

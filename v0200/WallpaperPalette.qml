@@ -1,6 +1,6 @@
-import Quickshell.Io
 import QtQuick
 import qs.Commons
+import "../omakit"
 import "WallpaperPaletteModel.js" as WallpaperPaletteModel
 
 Item {
@@ -64,9 +64,8 @@ Item {
     if (sampler.running) return
     sampler.activePath = path
     sampler.activeGeneration = sourceGeneration
-    sampler.result = ""
     sampler.command = [
-      "magick", path + "[0]",
+      "/usr/bin/magick", path + "[0]",
       "-alpha", "off",
       "-thumbnail", "64x64^",
       "-gravity", "center",
@@ -77,7 +76,7 @@ Item {
       "-format", "%c",
       "histogram:info:-"
     ]
-    sampler.running = true
+    sampler.start()
   }
 
   onSourcePathChanged: {
@@ -105,23 +104,23 @@ Item {
     onTriggered: root.startSample()
   }
 
-  Process {
+  // ImageMagick reduces one wallpaper to an 8-colour histogram: a few
+  // hundred milliseconds for a 4K image, so 15 s is generous, and the
+  // histogram is under 8 KiB (the previous slice), the cap 64 KiB.
+  Run {
     id: sampler
     property string activePath: ""
-    property string result: ""
     property int activeGeneration: 0
+    deadlineMs: 15000
+    maxBytes: 65536
+    keepBytes: 8192
 
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: sampler.result = String(text || "").slice(0, 8192)
-    }
-
-    onExited: function(exitCode) {
+    onFinished: function(result) {
       const currentPath = String(root.sourcePath || "")
       const sourceChanged = activeGeneration !== root.sourceGeneration
         || activePath !== currentPath
-      if (exitCode === 0 && !sourceChanged) {
-        const palette = WallpaperPaletteModel.paletteFromHistogram(result)
+      if (result.state === "ok" && !sourceChanged) {
+        const palette = WallpaperPaletteModel.paletteFromHistogram(result.stdout)
         if (palette) {
           root.remember(activePath, palette)
           root.base = palette.base
