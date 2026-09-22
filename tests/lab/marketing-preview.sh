@@ -85,6 +85,35 @@ omarchy_host_test() {
   sleep 0.5
   capture_console "success-theme-manager-marketing-02-themes-scroll" || return 1
 
+  # --- Favorites and the grouped grid (0.8.0) ---
+  press ctrl-d || return 1
+  wait_for_guest_state "Ctrl+D stars the highlighted theme" 20 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e '.themeFavoriteCount == 1'" || return 1
+  for _star_step in 1 2 3; do
+    press right || return 1
+    sleep 0.3
+  done
+  press ctrl-d || return 1
+  wait_for_guest_state "a second theme is starred" 20 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e '.themeFavoriteCount == 2'" || return 1
+
+  press ctrl-g || return 1
+  wait_for_guest_state "Ctrl+G shows the grouped grid" 20 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e '.themeGrid == true and .opened == true'" || return 1
+  sleep 0.8
+  qmp_pointer_park "$viewport_width" "$viewport_height" || return 1
+  sleep 0.4
+  capture_console "success-theme-manager-marketing-02b-theme-grid" || return 1
+
+  press ctrl-g || return 1
+  wait_for_guest_state "Ctrl+G returns to the carousel" 20 ssh_session \
+    "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
+       jq -e '.themeGrid == false'" || return 1
+  sleep 0.4
+
   # --- Theme catalog ---
   press ctrl-b || return 1
   wait_for_guest_state "Ctrl+B opens the theme catalog" 75 ssh_session \

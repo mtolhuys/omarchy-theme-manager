@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.8.0 - 2026-09-22
+
+- Star installed themes with `Ctrl+D`, filter to starred themes with
+  `Ctrl+Shift+D`, and group themes into named collections: `Ctrl+M` edits the
+  highlighted theme's memberships, `Ctrl+Shift+N` creates a collection with it,
+  `Ctrl+R` renames the selected collection, and `Delete` inside that sheet
+  removes the collection. Inside Favorites or a collection, `Delete` removes the
+  theme from that list only; everywhere else it keeps the uninstall confirmation.
+- Switch the theme picker between the carousel and a grouped grid with `Ctrl+G`
+  or the footer **Grid** chip: Favorites, Omarchy defaults, Installed, then your
+  collections, scrolled with the arrow keys or the mouse wheel and rendered on
+  the existing 17-delegate pool, which holds at most 16 cells and four section
+  titles on screen at any width or scroll offset. The chosen layout is
+  remembered across shell restarts. An **ACTIVE** badge marks the applied theme apart from the
+  highlighted card, and the installed-theme search also matches collection names
+  without a new index.
+- Give every surface the picker paints text on a minimum opacity, so the footer
+  controls, labels, hints and card captions stay readable when a theme asks for a
+  thin `image-picker.scrim-alpha` and a bright window sits behind the overlay.
+  Matte Black's own 0.5 wash put body text at 1.9:1 against a white page; the
+  floor lifts that to 7.8:1 while keeping each theme's color and honouring a
+  higher alpha where a theme sets one. Buttons, menus and dialogs carry their own
+  fill instead of the 4%-alpha wash they had at rest.
+- Keep favorites, collections and the chosen layout in
+  `~/.config/omarchy/theme-collections.json`, written through the same atomic
+  `FileView` block as the sticky memory file. Missing themes stay in the file and
+  reappear when reinstalled; an unreadable file is copied to
+  `theme-collections.json.bak` and treated as empty. Nothing is written until the
+  first star, collection or layout switch, and the capability set is unchanged
+  from 0.7.1: local files only, no helper process, no network.
+- Fix an empty theme inventory on a fresh install. A machine with no themes of
+  its own has no `~/.config/omarchy/themes`, and the inventory helper ended
+  there with a failing status, so the picker reported that it could not read the
+  inventory and listed no stock themes either. An empty user set is now a valid
+  state: stock themes are listed, uninstall and catalog browsing stay available,
+  and the grid still separates Omarchy defaults from installed themes.
+- Credit ejuro's Extended Theme Picker for the collections feature set,
+  reimplemented here on the picker's bounded delegate pool.
+
 ## 0.7.1 - 2026-09-21
 
 - Check ownership and permissions of every directory between `HOME` and the

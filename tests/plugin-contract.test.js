@@ -9,7 +9,7 @@ const read = (path) => readFile(join(process.cwd(), path), "utf8")
 test("keeps the published Theme Manager identity as the sole picker clone", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   assert.equal(manifest.id, "io.github.mtolhuys.theme-manager")
-  assert.equal(manifest.version, "0.7.1")
+  assert.equal(manifest.version, "0.8.0")
   assert.deepEqual(manifest.kinds, ["overlay"])
   assert.match(manifest.entryPoints.overlay, /^v[0-9]{4}\/ImagePicker\.qml$/)
   assert.equal(manifest.omarchy.clonedFrom, "omarchy.image-picker")
@@ -55,7 +55,10 @@ test("versions the complete QML and JavaScript runtime graph", async () => {
     "IconBrowseController.qml",
     "IconBrowseModel.js",
     "IconBrowseFilterBar.qml",
-    "IconBrowseFilterSheet.qml"
+    "IconBrowseFilterSheet.qml",
+    "ThemeCollectionsController.qml",
+    "ThemeCollectionsModel.js",
+    "ThemeCollectionsSheet.qml"
   ]) {
     assert.ok((await read(join(runtimeDir, file))).length > 0, file)
   }
@@ -159,6 +162,137 @@ test("routes theme and wallpaper features by request context", async () => {
   assert.match(picker, /catalogStickyQuery/)
   assert.match(picker, /refreshCatalogRows/)
   assert.doesNotMatch(picker, /io\.github\.mtolhuys\.wallpaper-manager/)
+})
+
+test("organises installed themes locally through the existing state writer", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const runtimeDir = dirname(manifest.entryPoints.overlay)
+  const picker = await read(join(runtimeDir, "ImagePicker.qml"))
+  const controller = await read(join(runtimeDir, "ThemeCollectionsController.qml"))
+  const model = await read(join(runtimeDir, "ThemeCollectionsModel.js"))
+  const sheet = await read(join(runtimeDir, "ThemeCollectionsSheet.qml"))
+
+  // Same FileView block as the sticky memory file; no helper process, no network.
+  assert.match(picker, /theme-collections\.json/)
+  assert.match(
+    controller,
+    /FileView \{\s+id: stateFile\s+path: root\.statePath\s+atomicWrites: true\s+printErrors: false/
+  )
+  assert.match(controller, /id: backupFile[\s\S]*?preload: false[\s\S]*?atomicWrites: true/)
+  assert.match(controller, /ThemeCollectionsModel\.backupPath\(root\.statePath\)/)
+  assert.doesNotMatch(controller, /Process \{|execDetached|execArgv|Quickshell\.env/)
+  assert.doesNotMatch(model + sheet, /XMLHttpRequest|http/)
+
+  // Grid view rides on the bounded carousel pool instead of a second Repeater.
+  assert.match(picker, /themeCollections\.gridCell\(index\)/)
+  assert.match(picker, /poolSize: root\.carouselPoolSize/)
+  assert.equal((picker.match(/model: root\.carouselPoolSize/g) || []).length, 1)
+  assert.match(picker, /model: root\.themeGridActive \? themeCollections\.gridHeaders : \[\]/)
+  assert.match(model, /slots\[cell\.position % size\]/)
+
+  // The grid is drawn inside the carousel, which is wider than the card and
+  // starts left of it once the card clamps to a narrow screen. Cells and
+  // section titles must both be placed from the card's centre, not that origin.
+  assert.match(picker, /gridWidth: Math\.min\(carousel\.width, card\.width\)/)
+  assert.match(
+    picker,
+    /readonly property real gridOriginX: \(width - themeCollections\.gridWidth\) \/ 2/
+  )
+  assert.match(picker, /readonly property real gridOriginY:/)
+  assert.match(picker, /x: carousel\.gridOriginX \+ themeCollections\.geometry\.offsetX/)
+  assert.match(picker, /width: themeCollections\.geometry\.contentWidth/)
+  assert.match(picker, /gridCell \? carousel\.gridOriginX \+ gridCell\.x : 0/)
+  assert.match(picker, /gridCell \? carousel\.gridOriginY \+ gridCell\.y : 0/)
+  assert.doesNotMatch(picker, /width: carousel\.width - 2 \* themeCollections/)
+
+  // A grid taller than the viewport has to take the wheel, and the wheel makes
+  // scrollTop free, which is what the pool bound in the model has to survive.
+  assert.match(picker, /WheelHandler \{\s+enabled: root\.themeGridActive/)
+  assert.match(picker, /themeCollections\.scrollGrid\(event\.angleDelta\.y\)/)
+  assert.match(controller, /ThemeCollectionsModel\.scrollBy\(/)
+  assert.match(model, /const gridMinCellWidth = 254/)
+  assert.match(model, /if \(filled >= size\) break/)
+
+  // Search extends the existing installed-theme match to collection names.
+  assert.match(controller, /ImagePickerModel\.textMatches/)
+  assert.match(
+    picker,
+    /themeCollectionsActive \? themeCollections\.matchingIndices : textMatchingIndices/
+  )
+
+  // Bindings: Delete edits a collection only when one is selected.
+  assert.match(
+    picker,
+    /if \(!themeCollections\.removeSelectedFromCollection\(\)\)\s+themeManager\.requestUninstall\(\)/
+  )
+  for (const key of ["Key_G", "Key_M", "Key_R"]) {
+    assert.match(
+      picker,
+      new RegExp(
+        "event\\.key === Qt\\." +
+          key +
+          "\\s+&& \\(event\\.modifiers & Qt\\.ControlModifier\\) !== 0\\s+&& root\\.themeCollectionsActive"
+      )
+    )
+  }
+  assert.match(
+    picker,
+    /Key_N\s+&& \(event\.modifiers & Qt\.ControlModifier\) !== 0\s+&& \(event\.modifiers & Qt\.ShiftModifier\) !== 0\s+&& root\.themeCollectionsActive/
+  )
+  assert.match(
+    picker,
+    /Key_D\s+&& \(event\.modifiers & Qt\.ControlModifier\) !== 0\s+&& \(event\.modifiers & Qt\.ShiftModifier\) !== 0\s+&& root\.themeCollectionsActive/
+  )
+  assert.match(picker, /ThemeCollectionsSheet \{/)
+  assert.match(picker, /id: themeGridButton/)
+  assert.match(picker, /text: "ACTIVE"/)
+
+  // The chosen layout is remembered in the same file, not just the session.
+  assert.match(model, /const viewValues = \{ carousel: true, grid: true \}/)
+  assert.match(controller, /ThemeCollectionsModel\.isGridView\(collectionsState\)/)
+  assert.match(controller, /ThemeCollectionsModel\.setView\(/)
+})
+
+test("keeps every picker backdrop above a readable contrast floor", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const runtimeDir = dirname(manifest.entryPoints.overlay)
+  const picker = await read(join(runtimeDir, "ImagePicker.qml"))
+
+  // A theme's own image-picker.scrim-alpha may be as low as 0.5, which is
+  // unreadable over a bright window. Nothing may paint text on the raw value.
+  assert.match(picker, /readonly property real minBackdropAlpha: 0\.9/)
+  assert.match(picker, /Math\.max\(surface\.a, floor\)/)
+  assert.match(picker, /activeScrim: livePaletteReady\s+\? readableBackdrop\(/)
+  assert.doesNotMatch(picker, /scrim: root\.scrim\b/)
+  assert.doesNotMatch(picker, /styleColor: Util\.alpha\(root\.dimColor/)
+
+  // Controls carry their own fill: Style.controlFill at rest is 4% alpha.
+  assert.ok(
+    (picker.match(/background: root\.chromeFill/g) || []).length >= 15,
+    "every footer button needs an at-rest fill"
+  )
+  assert.equal(
+    (picker.match(/bordered: true/g) || []).length,
+    (picker.match(/background: root\.chromeFill/g) || []).length
+  )
+})
+
+test("documents the release in the changelog, readme and submission notes", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const changelog = await read("CHANGELOG.md")
+  const readme = await read("README.md")
+  const verify = await read("MARKETPLACE-VERIFY.md")
+
+  const heading = new RegExp("^## " + manifest.version.replace(/\./g, "\\.") + " - ", "m")
+  assert.match(changelog, heading, "the changelog needs an entry for this version")
+  assert.match(readme, /theme-collections\.json/)
+  assert.match(readme, /`Ctrl\+G`/)
+  // The submission body is written per release; a stale one is a stale review.
+  assert.match(
+    verify,
+    new RegExp("(^|\\s)" + manifest.version.replace(/\./g, "\\.") + "(\\s|$)", "m"),
+    "MARKETPLACE-VERIFY.md still describes an older version"
+  )
 })
 
 test("publishes catalog cache entries through a checked directory descriptor", async () => {
