@@ -1,19 +1,46 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash
 # Restore Theme Manager per-theme wallpaper/icons after omarchy-theme-set.
 # Invoked as: omarchy-hook theme-set <theme-name>
+#
+# omarchy-hook starts this, not the Run block, so it closes its own
+# environment: PATH is /usr/bin and nothing else, BASH_ENV and ENV cannot
+# inject a file, and a failure stops the script.
+export PATH=/usr/bin
+unset BASH_ENV ENV
 set -euo pipefail
 
+# Omarchy's own commands are not in /usr/bin. OMARCHY_PATH names the install
+# in both layouts (a normal one and an `omarchy dev link` checkout); the
+# command is then called by absolute path rather than reopening PATH.
+OMARCHY_BIN="${OMARCHY_PATH:-${HOME}/.local/share/omarchy}/bin"
+THEME_BG_SET="${OMARCHY_BIN}/omarchy-theme-bg-set"
+if [[ ! -x $THEME_BG_SET ]]; then
+  THEME_BG_SET="${HOME}/.local/share/omarchy/bin/omarchy-theme-bg-set"
+fi
+
 THEME_NAME=${1:-}
-MEMORY_FILE="${HOME}/.config/omarchy/theme-manager-memory.json"
+# 0.9.0 keeps the plugin's state in its own 0700 directory under the XDG
+# state base (the omakit Store block). The 0.8.x file is read when that one
+# is not there yet: the picker migrates on its next start, and until then a
+# theme switch still finds the user's memory where they left it.
+STATE_HOME="${XDG_STATE_HOME:-${HOME}/.local/state}"
+MEMORY_FILE="${STATE_HOME}/io.github.mtolhuys.theme-manager/theme-manager-memory.json"
+if [[ ! -f $MEMORY_FILE ]]; then
+  MEMORY_FILE="${HOME}/.config/omarchy/theme-manager-memory.json"
+fi
 ICONS_THEME_PATH="${HOME}/.local/state/omarchy/current/theme/icons.theme"
 
 [[ -n $THEME_NAME ]] || exit 0
 [[ -f $MEMORY_FILE ]] || exit 0
 
-# Reject unsafe theme names (path traversal / control chars).
-if [[ $THEME_NAME == *'/'* || $THEME_NAME == *'..'* || $THEME_NAME == *$'\0'* ]]; then
-  exit 0
-fi
+# Reject unsafe theme names (path traversal / control chars). The NUL this
+# used to test for is stripped out of the pattern by bash, which left `**`
+# behind: it matched every name, so the hook returned without restoring
+# anything. A command-line argument cannot carry a NUL in the first place;
+# the character class is the check that was meant.
+case $THEME_NAME in
+  */* | *..* | *[[:cntrl:]]*) exit 0 ;;
+esac
 if ((${#THEME_NAME} > 255)); then
   exit 0
 fi
@@ -64,8 +91,8 @@ WALLPAPER=${ENTRY[0]:-}
 ICONS=${ENTRY[1]:-}
 
 if [[ -n $WALLPAPER && -f $WALLPAPER ]]; then
-  if command -v omarchy-theme-bg-set >/dev/null 2>&1; then
-    omarchy-theme-bg-set "$WALLPAPER" || true
+  if [[ -x $THEME_BG_SET ]]; then
+    "$THEME_BG_SET" "$WALLPAPER" || true
   fi
 fi
 

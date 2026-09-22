@@ -1,5 +1,6 @@
 const test = require("node:test")
 const assert = require("node:assert/strict")
+const { Buffer } = require("node:buffer")
 
 const ThemeCollectionsModel = require("../v0200/ThemeCollectionsModel.js")
 const ImagePickerModel = require("../v0200/ImagePickerModel.js")
@@ -94,11 +95,33 @@ test("treats a blank file as empty and a corrupt file as empty with a backup", (
     state: ThemeCollectionsModel.emptyState(),
     corrupt: true
   })
-  assert.equal(
-    ThemeCollectionsModel.backupPath("/home/user/.config/omarchy/theme-collections.json"),
-    "/home/user/.config/omarchy/theme-collections.json.bak"
+  assert.equal(ThemeCollectionsModel.backupFileName, "theme-collections.json.bak")
+})
+
+test("wraps an unreadable collections file in an envelope Store can write", () => {
+  const kept = JSON.parse(ThemeCollectionsModel.serializeBackup("{not json", false))
+  assert.deepEqual(kept, { version: 1, unreadable: false, truncated: false, text: "{not json" })
+
+  // Store refuses a write over 64 KiB, so the text is cut and the envelope
+  // says it was; the whole envelope has to stay under that limit.
+  const huge = "x".repeat(100 * 1024)
+  const envelope = ThemeCollectionsModel.serializeBackup(huge, true)
+  const parsed = JSON.parse(envelope)
+  assert.equal(parsed.truncated, true)
+  assert.equal(parsed.unreadable, true)
+  assert.equal(parsed.text.length, 48 * 1024)
+  assert.ok(
+    Buffer.byteLength(envelope, "utf8") < 64 * 1024,
+    "the envelope must fit Store's write cap"
   )
-  assert.equal(ThemeCollectionsModel.backupPath(""), "")
+
+  // A file Store could not hand back keeps an envelope with no text.
+  assert.deepEqual(JSON.parse(ThemeCollectionsModel.serializeBackup("", true)), {
+    version: 1,
+    unreadable: true,
+    truncated: false,
+    text: ""
+  })
 })
 
 test("serializes the fixed schema and round-trips", () => {

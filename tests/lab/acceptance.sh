@@ -117,6 +117,25 @@ omarchy_host_test() {
 
   ssh_session "python3 --version && magick -version" || return 1
 
+  # The suite drives the guest for minutes at a time through virtual input,
+  # which hypridle does not always count as activity. Without this the screen
+  # locks partway through and every later keypress goes to hyprlock, which
+  # shows up as an unrelated step failing wherever the timer happens to land.
+  ssh_session "omarchy-toggle-idle stay-awake" || return 1
+
+  # 0.9.0 keeps the plugin's own files in its private 0700 directory under the
+  # XDG state base (the omakit Store block) instead of ~/.config/omarchy.
+  # shellcheck disable=SC2016  # expanded in the guest, not here
+  local state_root='${XDG_STATE_HOME:-$HOME/.local/state}/io.github.mtolhuys.theme-manager'
+
+  # Seed a 0.8.x state file so the first picker start has something to adopt.
+  # The value is deliberately one the plugin would never invent on its own.
+  ssh_session "mkdir -p \"\$HOME/.config/omarchy\" && \
+    printf '%s' '{\"version\":1,\"themes\":{\"lab-legacy-theme\":{\"icons\":\"LabLegacyIcons\"}}}' \
+      >\"\$HOME/.config/omarchy/theme-manager-memory.json\" && \
+    sha256sum \"\$HOME/.config/omarchy/theme-manager-memory.json\" \
+      >/tmp/theme-manager-legacy-memory.sha256" || return 1
+
   ssh_session "omarchy-plugin-add $install_source_q --enable --yes" || return 1
   wait_for_guest_state "Theme Manager $version is installed" 25 ssh_session \
     "omarchy-plugin-list --json | jq -e \
@@ -133,6 +152,16 @@ omarchy_host_test() {
   fi
   wait_for_guest_state "the Theme Manager hook is installed" 15 ssh_session \
     "test -x \"\$HOME/.config/omarchy/hooks/theme-set.d/50-theme-manager-memory\"" || return 1
+
+  # The one-time migration: 0.8.x's file is adopted into the private state
+  # root, mode 0700, and the original is left byte-identical so a downgrade
+  # still finds it.
+  wait_for_guest_state "the 0.8.x state file is adopted into the private root" 25 ssh_session \
+    "jq -e '.themes[\"lab-legacy-theme\"].icons == \"LabLegacyIcons\"' \
+       \"$state_root/theme-manager-memory.json\" && \
+     [[ \$(stat -c %a \"$state_root\") == 700 ]] && \
+     [[ \$(stat -c %a \"$state_root/theme-manager-memory.json\") == 600 ]] && \
+     sha256sum --check --status /tmp/theme-manager-legacy-memory.sha256" || return 1
 
   press meta_l-shift-ctrl-spc || return 1
   wait_for_guest_state "the native theme shortcut opens Theme Manager's theme mode" 20 ssh_session \
@@ -195,7 +224,7 @@ omarchy_host_test() {
     "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
        jq -e '.currentFavorite == true and .favoriteCount == 1' && \
      jq -e '.version == 2 and (.favorites | length) == 1' \
-       \"\$HOME/.config/omarchy/wallpaper-command-center.json\"" || return 1
+       \"$state_root/wallpaper-command-center.json\"" || return 1
 
   press esc || return 1
   wait_for_guest_state "the wallpaper picker closes with its favorite persisted" 20 ssh_session \
@@ -218,7 +247,7 @@ omarchy_host_test() {
     "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
        jq -e '.favoritesOnly == false and .currentFavorite == false and .favoriteCount == 0' && \
      jq -e '.version == 2 and (.favorites | length) == 0' \
-       \"\$HOME/.config/omarchy/wallpaper-command-center.json\"" || return 1
+       \"$state_root/wallpaper-command-center.json\"" || return 1
 
   press ctrl-b || return 1
   wait_for_guest_state "Ctrl+B enters the built-in open wallpaper catalog" 55 ssh_session \
@@ -277,7 +306,7 @@ omarchy_host_test() {
      file --brief --mime-type \"\$background\" | grep -q '^image/' && \
      jq -e --arg theme \"\$theme\" --arg background \"\$background\" \
        '.themes[\$theme].wallpaper == \$background' \
-       \"\$HOME/.config/omarchy/theme-manager-memory.json\" && \
+       \"$state_root/theme-manager-memory.json\" && \
      hyprctl -j layers | jq -e \
        '[.. | objects | select(.namespace? == \"omarchy-image-selector\")] | length == 0'" || return 1
   ssh_session "test -z \"\$(hyprctl configerrors)\"" || return 1

@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.9.0 - 2026-09-22
+
+- Start every program through omakit's Run block. Each of the 24 sites in QML
+  now has a deadline and a byte cap counted while reading, the whole process
+  group is ended when the run finishes or the picker closes, and the
+  environment the program gets is closed: `PATH=/usr/bin`, `HOME`, `LANG` and
+  `XDG_RUNTIME_DIR`, plus only the variables that program actually needs.
+  Nothing the picker starts can outlive it or grow without bound. Same
+  commands, same arguments, same exit codes, same output.
+- Keep the five files the plugin owns in its own `0700` directory under
+  `$XDG_STATE_HOME` through omakit's Store block, reached by a descriptor walk
+  with `O_NOFOLLOW` at every step and written through an exclusive `0600`
+  staging file renamed into place. Theme memory, collections, starred
+  wallpapers and both filter files move from `~/.config/omarchy/`. They are
+  adopted once, on the first start after the upgrade; **the originals are left
+  exactly where they are**, so downgrading to 0.8.x keeps working and nothing
+  is destroyed if the migration is wrong.
+- Fix the per-theme wallpaper and icon restore in the `theme-set` hook, which
+  has never run. Its unsafe-name guard tested for a NUL that bash strips out of
+  the pattern, leaving `**` behind — a pattern that matches every theme name,
+  so the hook returned without restoring anything on every theme switch. Sticky
+  memory still worked while the picker was running, which is why this went
+  unnoticed. The hook also reads the new state root, falls back to the 0.8.x
+  file until the picker has migrated, and closes its own environment, since
+  `omarchy-hook` starts it rather than Run.
+- Replace the hand-rolled output bounds in the wallpaper and icon browsers with
+  Run's. The `StdioCollector` byte counts and `signal(9)` kills are gone; both
+  browsers keep the same 4 MiB search and 8 KiB download caps, and both gain a
+  deadline they did not have: two minutes for a thumbnails page, three for a
+  full-size download, sized from the catalog helper's own 30-second socket
+  timeout.
+- No new capability, host, process, timer or permission. `omakit verify`
+  reports no findings and the only capability is still `installer`, unchanged
+  since 0.7.1. `omakit inspect` moves process-lifecycle from 23 to 0,
+  unbounded-buffering from 18 to 0, and environment-trust from 490 to 449.
+
 ## 0.8.0 - 2026-09-22
 
 - Star installed themes with `Ctrl+D`, filter to starred themes with

@@ -1,4 +1,3 @@
-import Quickshell.Io
 import QtQuick
 import "ThemeCollectionsModel.js" as ThemeCollectionsModel
 import "ThemeManagerModel.js" as ThemeManagerModel
@@ -7,6 +6,8 @@ import "ImagePickerModel.js" as ImagePickerModel
 Item {
   id: root
 
+  property string pluginId: ""
+  // Where 0.8.x kept this file; PluginState adopts it once and leaves it.
   property string statePath: ""
   property bool pickerOpen: false
   // The installed-theme rows are on screen (not catalog, wallpapers, or icons).
@@ -72,7 +73,7 @@ Item {
   readonly property bool canRename: !!selectedCollection
   readonly property int favoriteCount: ThemeCollectionsModel.favoriteCount(collectionsState)
   readonly property int collectionCount: collectionsState.collections.length
-  readonly property string backupFileName: "theme-collections.json.bak"
+  readonly property string backupFileName: ThemeCollectionsModel.backupFileName
   readonly property string deleteHint: {
     if (selectedCollectionId === "favorites") return "Delete unstars"
     if (selectedCollection) return "Delete removes from " + selectedCollection.name
@@ -117,10 +118,13 @@ Item {
     return slot >= 0 && slot < gridSlots.length ? gridSlots[slot] : null
   }
 
-  function acceptStateText(raw) {
+  // `unreadable` is Store reporting a file that is not JSON at all, the one
+  // case where it cannot hand the bytes back; `corrupt` is JSON of the wrong
+  // shape, which it can. Both keep the copy and say the same thing.
+  function acceptStateText(raw, unreadable) {
     const result = ThemeCollectionsModel.parseStateResult(raw)
-    if (result.corrupt) {
-      backupFile.setText(String(raw || ""))
+    if (result.corrupt || unreadable === true) {
+      backupFile.save(ThemeCollectionsModel.serializeBackup(raw, unreadable === true))
       statusMessage("Theme collections were unreadable · copy kept as " + backupFileName)
     }
     collectionsState = result.state
@@ -129,7 +133,7 @@ Item {
   }
 
   function save() {
-    stateFile.setText(ThemeCollectionsModel.serializeState(collectionsState))
+    stateFile.save(ThemeCollectionsModel.serializeState(collectionsState))
   }
 
   function ready() {
@@ -318,21 +322,23 @@ Item {
     focusRequested()
   }
 
-  FileView {
+  PluginState {
     id: stateFile
-    path: root.statePath
-    atomicWrites: true
-    printErrors: false
-    onLoaded: root.acceptStateText(text())
-    onLoadFailed: root.acceptStateText("")
+    pluginId: root.pluginId
+    name: "theme-collections.json"
+    legacyPath: root.statePath
+    onTextReady: function(text, unreadable) { root.acceptStateText(text, unreadable) }
+    onSaveFailed: root.statusMessage("Theme collections could not be saved")
   }
 
   // Receives the unreadable original before it is replaced; never read back.
-  FileView {
+  // Store writes a value, and the text it kept is by definition not one, so
+  // it travels in an envelope (ThemeCollectionsModel.serializeBackup).
+  PluginState {
     id: backupFile
-    path: ThemeCollectionsModel.backupPath(root.statePath)
-    preload: false
-    atomicWrites: true
-    printErrors: false
+    pluginId: root.pluginId
+    name: ThemeCollectionsModel.backupFileName
   }
+
+  Component.onCompleted: stateFile.load()
 }

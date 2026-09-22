@@ -9,7 +9,7 @@ const read = (path) => readFile(join(process.cwd(), path), "utf8")
 test("keeps the published Theme Manager identity as the sole picker clone", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   assert.equal(manifest.id, "io.github.mtolhuys.theme-manager")
-  assert.equal(manifest.version, "0.8.0")
+  assert.equal(manifest.version, "0.9.0")
   assert.deepEqual(manifest.kinds, ["overlay"])
   assert.match(manifest.entryPoints.overlay, /^v[0-9]{4}\/ImagePicker\.qml$/)
   assert.equal(manifest.omarchy.clonedFrom, "omarchy.image-picker")
@@ -20,8 +20,12 @@ test("releases image-selector clients independently of QML loader teardown", asy
   const manifest = JSON.parse(await read("manifest.json"))
   const picker = await read(manifest.entryPoints.overlay)
 
-  assert.match(picker, /Quickshell\.execDetached\(\["touch", "--", String\(path\)\]\)/)
-  assert.doesNotMatch(picker, /doneFilesToRelease|releaseNextDoneFile|id: releaseProc/)
+  // The done mark is written from this process, synchronously, so a rescan
+  // that destroys the object right after close() cannot lose it; no child
+  // process is involved (Run ends its group on destruction).
+  assert.match(picker, /function finishDoneFile\(path\) \{[\s\S]*?writeSmallFile\(path, ""\)/)
+  assert.match(picker, /id: smallFileWriter\n\s*blockWrites: true/)
+  assert.doesNotMatch(picker, /execDetached|doneFilesToRelease|releaseNextDoneFile|id: releaseProc/)
 })
 
 test("versions the complete QML and JavaScript runtime graph", async () => {
@@ -46,6 +50,7 @@ test("versions the complete QML and JavaScript runtime graph", async () => {
     "WallpaperCommandModel.js",
     "WallpaperPalette.qml",
     "WallpaperPaletteModel.js",
+    "PluginState.qml",
     "WallhavenFilterBar.qml",
     "WallhavenFilterSheet.qml",
     "ThemeCatalogFilterBar.qml",
@@ -84,8 +89,12 @@ test("releases image-selector clients independently of QML loader teardown", asy
   const manifest = JSON.parse(await read("manifest.json"))
   const picker = await read(manifest.entryPoints.overlay)
 
-  assert.match(picker, /Quickshell\.execDetached\(\["touch", "--", String\(path\)\]\)/)
-  assert.doesNotMatch(picker, /doneFilesToRelease|releaseNextDoneFile|id: releaseProc/)
+  // The done mark is written from this process, synchronously, so a rescan
+  // that destroys the object right after close() cannot lose it; no child
+  // process is involved (Run ends its group on destruction).
+  assert.match(picker, /function finishDoneFile\(path\) \{[\s\S]*?writeSmallFile\(path, ""\)/)
+  assert.match(picker, /id: smallFileWriter\n\s*blockWrites: true/)
+  assert.doesNotMatch(picker, /execDetached|doneFilesToRelease|releaseNextDoneFile|id: releaseProc/)
 })
 
 test("resolves bundled helpers without private host manifest fields", async () => {
@@ -103,6 +112,12 @@ test("resolves bundled helpers without private host manifest fields", async () =
     "wallpaper-catalog.py",
     "install-theme.py",
     "install-wallpaper.sh",
+    // The helpers that replaced the bash -c strings Run refuses.
+    "install-hook.sh",
+    "verify-wallpaper.sh",
+    "apply-icons.sh",
+    "reset-icons.sh",
+    "probe-theme-lock.sh",
     "remove-wallpaper.sh",
     "reset-wallpaper.sh",
     "theme-inventory.sh",
@@ -149,8 +164,8 @@ test("routes theme and wallpaper features by request context", async () => {
   assert.match(picker, /catalogAction: themeCatalog\.selectedStatus/)
   assert.match(picker, /catalogCanOpenSource: themeCatalog\.canOpenSelectedSource/)
   assert.match(picker, /pluginScriptPath\("install-theme\.py"\)/)
-  assert.match(picker, /Util\.execArgv\(\["xdg-open", repositoryUrl\]\)/)
-  assert.doesNotMatch(catalogRuntime, /execDetached\(\["xdg-open"/)
+  assert.match(picker, /sourceOpener\.command = \["\/usr\/bin\/xdg-open", repositoryUrl\]/)
+  assert.doesNotMatch(catalogRuntime, /execDetached\(\["xdg-open"|execArgv/)
 
   assert.match(picker, /ThemeMemoryModel/)
   assert.match(picker, /root\.openIcons\(\)/)
@@ -172,15 +187,19 @@ test("organises installed themes locally through the existing state writer", asy
   const model = await read(join(runtimeDir, "ThemeCollectionsModel.js"))
   const sheet = await read(join(runtimeDir, "ThemeCollectionsSheet.qml"))
 
-  // Same FileView block as the sticky memory file; no helper process, no network.
+  // Same private state file as the sticky memory; no network, and the only
+  // process is the one Store starts.
   assert.match(picker, /theme-collections\.json/)
   assert.match(
     controller,
-    /FileView \{\s+id: stateFile\s+path: root\.statePath\s+atomicWrites: true\s+printErrors: false/
+    /PluginState \{\s+id: stateFile\s+pluginId: root\.pluginId\s+name: "theme-collections\.json"\s+legacyPath: root\.statePath/
   )
-  assert.match(controller, /id: backupFile[\s\S]*?preload: false[\s\S]*?atomicWrites: true/)
-  assert.match(controller, /ThemeCollectionsModel\.backupPath\(root\.statePath\)/)
-  assert.doesNotMatch(controller, /Process \{|execDetached|execArgv|Quickshell\.env/)
+  assert.match(
+    controller,
+    /PluginState \{\s+id: backupFile[\s\S]*?name: ThemeCollectionsModel\.backupFileName/
+  )
+  assert.match(controller, /backupFile\.save\(ThemeCollectionsModel\.serializeBackup\(/)
+  assert.doesNotMatch(controller, /Process \{|FileView|execDetached|execArgv|Quickshell\.env/)
   assert.doesNotMatch(model + sheet, /XMLHttpRequest|http/)
 
   // Grid view rides on the bounded carousel pool instead of a second Repeater.
@@ -295,6 +314,82 @@ test("documents the release in the changelog, readme and submission notes", asyn
   )
 })
 
+test("keeps its own state under the private Store root, adopting 0.8.x once", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const runtimeDir = dirname(manifest.entryPoints.overlay)
+  const picker = await read(join(runtimeDir, "ImagePicker.qml"))
+  const pluginState = await read(join(runtimeDir, "PluginState.qml"))
+  const collections = await read(join(runtimeDir, "ThemeCollectionsController.qml"))
+  const notice = await read("omakit/NOTICE")
+
+  // The block is vendored unmodified; a fix belongs in omakit, not the copy.
+  assert.match(notice, /block store 0\.2\.0/)
+  assert.match(await read("omakit/Store.qml"), /^\/\/ omakit block: store 0\.2\.0/)
+  assert.match(await read("omakit/store-helper.py"), /^# omakit block: store 0\.2\.0/)
+
+  // Every plugin-owned file goes through Store, under the plugin's own id.
+  assert.match(pluginState, /property Store _store: Store \{/)
+  assert.match(pluginState, /kind: "state"/)
+  assert.match(picker, /readonly property string pluginId: "io\.github\.mtolhuys\.theme-manager"/)
+  for (const name of [
+    "theme-catalog-filters.json",
+    "wallpaper-browser-filters.json",
+    "wallpaper-command-center.json",
+    "theme-manager-memory.json"
+  ]) {
+    assert.match(picker, new RegExp('name: "' + name.replace(/\./g, "\\.") + '"'))
+  }
+  assert.match(collections, /name: "theme-collections\.json"/)
+  assert.equal((picker.match(/PluginState \{/g) || []).length, 4)
+  assert.equal((collections.match(/PluginState \{/g) || []).length, 2)
+
+  // The five 0.8.x paths are still named, because they are still read -- once,
+  // when Store reports nothing of ours there yet -- and never written again.
+  for (const legacy of [
+    "theme-catalog-filters.json",
+    "wallpaper-browser-filters.json",
+    "wallpaper-command-center.json",
+    "theme-manager-memory.json",
+    "theme-collections.json"
+  ]) {
+    assert.match(
+      picker,
+      new RegExp("\\.config/omarchy/" + legacy.replace(/\./g, "\\.")),
+      legacy + " keeps its 0.8.x path for the one-time read"
+    )
+  }
+  assert.match(pluginState, /result\.state === "missing" && legacyPath && !_migrated/)
+  assert.match(pluginState, /_migrated = true/)
+  // The originals are left where they are, so a downgrade still finds them.
+  assert.doesNotMatch(pluginState, /_legacy\.setText|_legacy\.remove|blockWrites/)
+  // A FileView nested in a QtObject never delivers onLoaded, and blockLoading
+  // blocks on access rather than on reload(), so the migration read has to be
+  // taken synchronously. Driven against a real quickshell; an onLoaded handler
+  // here would silently never run and the migration would do nothing.
+  assert.match(pluginState, /blockLoading: true/)
+  assert.match(pluginState, /_adopt\(_legacy\.text\(\)\)/)
+  assert.doesNotMatch(pluginState, /_legacy[\s\S]*?onLoaded:/)
+
+  // Nothing writes a plugin-owned file behind Store's back any more. The two
+  // FileViews left in the picker read Omarchy's own state, and the third
+  // writes the caller's selection and done files, which are not ours.
+  assert.equal((picker.match(/FileView \{/g) || []).length, 3)
+  assert.doesNotMatch(picker, /setText\(ThemeMemoryModel|setText\(WallpaperCommandModel/)
+  for (const id of [
+    "catalogFiltersFile",
+    "wallhavenFiltersFile",
+    "wallpaperCommandState",
+    "themeMemoryStateFile"
+  ]) {
+    assert.doesNotMatch(picker, new RegExp(id + "\\.setText\\("))
+  }
+
+  // The hook runs where Run did not start it and reads the new root.
+  const hook = await read("hooks/theme-set.d/50-theme-manager-memory")
+  assert.match(hook, /XDG_STATE_HOME/)
+  assert.match(hook, /io\.github\.mtolhuys\.theme-manager/)
+})
+
 test("publishes catalog cache entries through a checked directory descriptor", async () => {
   const cache = await read("catalog-cache.py")
   assert.match(cache, /os\.O_DIRECTORY \| os\.O_NOFOLLOW/)
@@ -328,7 +423,6 @@ test("runs open wallpaper traffic through the bounded bundled provider", async (
   assert.match(controller, /maxSearchOutputBytes:\s*4 \* 1024 \* 1024/)
   assert.match(controller, /pagesPerRequest:\s*1/)
   assert.match(controller, /maxDownloadOutputBytes:\s*8 \* 1024/)
-  assert.match(controller, /maxErrorOutputBytes:\s*64 \* 1024/)
   assert.match(controller, /command\[0\] = root\.commandPath/)
   assert.match(picker, /commandPath: root\.pluginScriptPath\("wallpaper-catalog\.py"\)/)
   assert.match(provider, /MAX_API_BYTES = 4 \* 1024 \* 1024/)
@@ -340,12 +434,27 @@ test("runs open wallpaper traffic through the bounded bundled provider", async (
   assert.match(provider, /os\.O_EXCL \| os\.O_NOFOLLOW/)
   assert.match(provider, /def trusted_host\(host: str\)/)
   assert.doesNotMatch(provider, /wallhaven\.cc/)
+  // Both provider runs go through omakit's Run block: the byte caps are the
+  // block's, counted while reading, and every run has a deadline. The
+  // hand-rolled StdioCollector/onDataChanged/signal(9) bound is gone, and
+  // with it the separate stderr cap -- Run bounds each stream at maxBytes.
+  assert.equal((controller.match(/^  Run \{/gm) || []).length, 2)
+  assert.doesNotMatch(controller, /Process \{|StdioCollector|onDataChanged|\.signal\(9\)/)
+  assert.match(controller, /maxBytes: root\.maxSearchOutputBytes/)
+  assert.match(controller, /keepBytes: root\.maxSearchOutputBytes/)
+  assert.match(controller, /maxBytes: root\.maxDownloadOutputBytes/)
+  assert.equal((controller.match(/deadlineMs: \d+/g) || []).length, 2)
+  assert.match(controller, /environment: root\.helperEnvironment/)
+  assert.match(picker, /helperEnvironment: root\.helperEnvironment/)
+  // The provider's own JSON error still outranks stderr, as it did on Process.
   assert.equal(
-    (controller.match(/WallpaperBrowserModel\.processError\(\s*stdoutText,/g) || []).length,
+    (
+      controller.match(
+        /WallpaperBrowserModel\.processError\(\s*result\.stdout,\s*result\.stderr,/g
+      ) || []
+    ).length,
     2
   )
-  assert.equal((controller.match(/onDataChanged:/g) || []).length, 4)
-  assert.equal((controller.match(/\.signal\(9\)/g) || []).length, 4)
   assert.match(filterBar, /Filters/)
   assert.match(filterSheet, /Bundled Omarchy wallpapers/)
   assert.match(filterSheet, /getCollectionOptions/)
@@ -369,7 +478,8 @@ test("ships theme-set memory hook, Icons showcase chip, and Actions dropdown", a
   const manifest = JSON.parse(await read("manifest.json"))
   const picker = await read(manifest.entryPoints.overlay)
   assert.match(picker, /ensureThemeSetMemoryHook/)
-  assert.match(picker, /omarchy-theme-set\.lock/)
+  assert.match(picker, /probe-theme-lock\.sh/)
+  assert.match(await read("probe-theme-lock.sh"), /omarchy-theme-set\.lock/)
   assert.match(picker, /footerIconLabel/)
   assert.match(picker, /Wallpaper saved for/)
   assert.match(picker, /id: iconsBrowseButton/)
@@ -463,7 +573,10 @@ test("installs external wallpapers into theme backgrounds for the local picker",
   assert.match(picker, /list\.sh is the source of/)
   assert.doesNotMatch(picker, /injectWallpaperIntoCarousel\(remembered\)/)
   assert.match(picker, /acceptInstalledWallpaper/)
-  assert.match(picker, /wallpaperInstallStdout/)
+  assert.match(
+    picker,
+    /id: wallpaperInstallProc[\s\S]*?onFinished: function\(result\)[\s\S]*?result\.stdout/
+  )
   assert.match(picker, /pendingInstallSourcePath/)
   assert.match(picker, /syncInstalledWallpaperIntoLocalSnapshot/)
   assert.match(picker, /installedWallpaperPath\(/)
@@ -477,10 +590,11 @@ test("installs external wallpapers into theme backgrounds for the local picker",
   assert.match(picker, /reset-wallpaper\.sh/)
   assert.match(picker, /dropWallpaperFromCarousel/)
   assert.match(picker, /reloadLocalWallpapersFromDisk/)
-  assert.match(picker, /wallpaperRemoveStdout/)
-  assert.match(picker, /wallpaperResetStdout/)
-  assert.match(picker, /acceptRemovedInstalledWallpaper\(root\.wallpaperRemoveStdout\)/)
-  assert.match(picker, /acceptResetWallpaper\(root\.wallpaperResetStdout\)/)
+  assert.match(
+    picker,
+    /acceptRemovedInstalledWallpaper\(String\(result\.stdout \|\| ""\)\.trim\(\)\)/
+  )
+  assert.match(picker, /acceptResetWallpaper\(String\(result\.stdout \|\| ""\)\.trim\(\)\)/)
   assert.match(picker, /Optimistic UI drop BEFORE Process starts/)
   assert.doesNotMatch(picker, /root\.wallpaperRemoveProc\.succeeded/)
   assert.doesNotMatch(picker, /root\.wallpaperResetProc\.succeeded/)

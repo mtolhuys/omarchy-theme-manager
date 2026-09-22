@@ -1,18 +1,19 @@
-import Quickshell.Io
 import QtQuick
+import "../omakit"
 import "IconBrowseModel.js" as IconBrowseModel
 
 Item {
   id: root
 
   property string scriptPath: ""
+  // The closed environment icons-browse.sh runs in (ImagePicker.qml names it).
+  property var helperEnvironment: ({})
   property string sorting: "new"
   property int pagesize: IconBrowseModel.defaultPageSize
   property int requestSerial: 0
   property int installSerial: 0
   readonly property int maxSearchOutputBytes: 2 * 1024 * 1024
   readonly property int maxInstallOutputBytes: 16 * 1024
-  readonly property int maxErrorOutputBytes: 64 * 1024
   property var queuedRequest: null
   property string activeQuery: ""
   property string activeFilterKey: ""
@@ -98,11 +99,8 @@ Item {
     searchProc.activeFilterKey = request.filterKey
     searchProc.activePage = request.page
     searchProc.activeAppend = request.append
-    searchProc.outputTooLarge = false
-    searchProc.stdoutText = ""
-    searchProc.stderrText = ""
     searchProc.command = command
-    searchProc.running = true
+    searchProc.start()
   }
 
   function loadMore() {
@@ -142,14 +140,14 @@ Item {
     installSerial += 1
     installProc.activeSerial = installSerial
     installProc.targetName = String(entry.displayName || entry.name || entry.id)
-    installProc.outputTooLarge = false
-    installProc.stdoutText = ""
-    installProc.stderrText = ""
     installProc.command = command
-    installProc.running = true
+    installProc.start()
   }
 
-  Process {
+  // icons-browse.sh search: one OCS API page through curl under the
+  // script's own 2 MiB and timeout limits; 45 s covers a slow API, and the
+  // cap is the script's own bound (maxSearchOutputBytes) plus the error cap.
+  Run {
     id: searchProc
 
     property int activeSerial: 0
@@ -157,62 +155,35 @@ Item {
     property string activeFilterKey: ""
     property int activePage: 0
     property bool activeAppend: false
-    property bool outputTooLarge: false
-    property string stdoutText: ""
-    property string stderrText: ""
+    environment: root.helperEnvironment
+    deadlineMs: 45000
+    maxBytes: root.maxSearchOutputBytes
+    keepBytes: root.maxSearchOutputBytes
 
-    stdout: StdioCollector {
-      waitForEnd: true
-      onDataChanged: {
-        if (!searchProc.outputTooLarge
-            && data.length > root.maxSearchOutputBytes) {
-          searchProc.outputTooLarge = true
-          searchProc.signal(9)
-        }
-      }
-      onStreamFinished: {
-        if (!searchProc.outputTooLarge)
-          searchProc.stdoutText = String(text || "")
-      }
-    }
-
-    stderr: StdioCollector {
-      waitForEnd: true
-      onDataChanged: {
-        if (!searchProc.outputTooLarge
-            && data.length > root.maxErrorOutputBytes) {
-          searchProc.outputTooLarge = true
-          searchProc.signal(9)
-        }
-      }
-      onStreamFinished: {
-        if (!searchProc.outputTooLarge)
-          searchProc.stderrText = String(text || "")
-      }
-    }
-
-    onExited: function(exitCode) {
+    onFinished: function(result) {
       const isCurrent = activeSerial === root.requestSerial
 
-      if (isCurrent && outputTooLarge) {
+      if (isCurrent && result.state === "overflow") {
         root.errorMessage = "Icon catalog returned too much output"
-      } else if (isCurrent && exitCode === 0) {
-        const result = IconBrowseModel.parseSearchResponse(stdoutText)
-        if (result.error) {
-          root.errorMessage = result.error
+      } else if (isCurrent && result.state === "ok") {
+        const parsed = IconBrowseModel.parseSearchResponse(result.stdout)
+        if (parsed.error) {
+          root.errorMessage = parsed.error
         } else {
           root.activeQuery = activeQuery
           root.activeFilterKey = activeFilterKey
-          root.currentPage = result.meta.page
-          root.totalResults = result.meta.total
-          root.hasMore = result.meta.hasMore === true
+          root.currentPage = parsed.meta.page
+          root.totalResults = parsed.meta.total
+          root.hasMore = parsed.meta.hasMore === true
           root.errorMessage = ""
-          root.resultsReady(result.rows, activeAppend)
+          root.resultsReady(parsed.rows, activeAppend)
         }
       } else if (isCurrent) {
         root.errorMessage = IconBrowseModel.errorFromStderr(
-          stderrText,
-          "Could not search Pling icon themes"
+          result.stderr,
+          result.state === "timeout"
+            ? "Pling did not answer within 45 seconds"
+            : "Could not search Pling icon themes"
         )
       }
 
@@ -221,65 +192,41 @@ Item {
     }
   }
 
-  Process {
+  // icons-browse.sh install: a download of up to 200 MiB under the
+  // script's own curl limits and an extraction of up to 50,000 files;
+  // 5 minutes covers that on a slow link, and its report is one JSON line
+  // (maxInstallOutputBytes).
+  Run {
     id: installProc
 
     property int activeSerial: 0
     property string targetName: ""
-    property bool outputTooLarge: false
-    property string stdoutText: ""
-    property string stderrText: ""
+    environment: root.helperEnvironment
+    deadlineMs: 300000
+    maxBytes: root.maxInstallOutputBytes
 
-    stdout: StdioCollector {
-      waitForEnd: true
-      onDataChanged: {
-        if (!installProc.outputTooLarge
-            && data.length > root.maxInstallOutputBytes) {
-          installProc.outputTooLarge = true
-          installProc.signal(9)
-        }
-      }
-      onStreamFinished: {
-        if (!installProc.outputTooLarge)
-          installProc.stdoutText = String(text || "")
-      }
-    }
-
-    stderr: StdioCollector {
-      waitForEnd: true
-      onDataChanged: {
-        if (!installProc.outputTooLarge
-            && data.length > root.maxErrorOutputBytes) {
-          installProc.outputTooLarge = true
-          installProc.signal(9)
-        }
-      }
-      onStreamFinished: {
-        if (!installProc.outputTooLarge)
-          installProc.stderrText = String(text || "")
-      }
-    }
-
-    onExited: function(exitCode) {
+    onFinished: function(result) {
       if (activeSerial !== root.installSerial) return
 
-      root.installStderr = stderrText
-      if (outputTooLarge) {
+      root.installStderr = result.stderr
+      if (result.state === "overflow") {
         root.errorMessage = "Icon install returned too much output"
         root.focusRequested()
-      } else if (exitCode === 0) {
-        const result = IconBrowseModel.parseInstallResponse(stdoutText)
-        if (result.error) {
-          root.errorMessage = result.error
+      } else if (result.state === "ok") {
+        const parsed = IconBrowseModel.parseInstallResponse(result.stdout)
+        if (parsed.error) {
+          root.errorMessage = parsed.error
           root.focusRequested()
         } else {
           root.errorMessage = ""
-          root.iconInstalled(result.themeName, result.themeNames)
+          root.iconInstalled(parsed.themeName, parsed.themeNames)
         }
       } else {
         root.errorMessage = IconBrowseModel.errorFromStderr(
-          stderrText,
-          "Could not install " + (targetName || "the icon theme")
+          result.stderr,
+          result.state === "timeout"
+            ? "Installing " + (targetName || "the icon theme") + " did not finish within five minutes"
+            : "Could not install " + (targetName || "the icon theme")
         )
         root.focusRequested()
       }
