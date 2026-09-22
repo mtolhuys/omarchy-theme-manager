@@ -117,6 +117,12 @@ omarchy_host_test() {
 
   ssh_session "python3 --version && magick -version" || return 1
 
+  # The suite drives the guest for minutes at a time through virtual input,
+  # which hypridle does not always count as activity. Without this the screen
+  # locks partway through and every later keypress goes to hyprlock, which
+  # shows up as an unrelated step failing wherever the timer happens to land.
+  ssh_session "omarchy-toggle-idle stay-awake" || return 1
+
   ssh_session "omarchy-plugin-add $install_source_q --enable --yes" || return 1
   wait_for_guest_state "Theme Manager $version is installed" 25 ssh_session \
     "omarchy-plugin-list --json | jq -e \

@@ -35,6 +35,10 @@ QtObject {
 
   property bool _loaded: false
   property bool _migrated: false
+  // A save that landed before the first read settled. Whatever the read then
+  // reports is older than it, so neither the adopted 0.8.x file nor an empty
+  // state may be written or handed back over the top of it.
+  property bool _saved: false
   property string _storePath: ""
 
   function load() {
@@ -52,6 +56,7 @@ QtObject {
       saveFailed("the value is not JSON")
       return
     }
+    _saved = true
     _store.write(value)
   }
 
@@ -75,6 +80,7 @@ QtObject {
 
   function _settle(text, unreadable) {
     _loaded = true
+    if (_saved) return
     textReady(text, unreadable === true)
   }
 
@@ -104,7 +110,7 @@ QtObject {
   // root is written through Store, like every other write.
   function _adopt(text) {
     const value = _value(text)
-    if (value === null) {
+    if (value === null || _saved) {
       _settle("", false)
       return
     }
