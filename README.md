@@ -23,16 +23,17 @@
 ## Features
 
 - **Sticky per-theme memory** — wallpaper and icon overrides persist in
-  `~/.config/omarchy/theme-manager-memory.json` and restore after theme switches
-  (including native `omarchy-theme-set`).
+  `~/.local/state/io.github.mtolhuys.theme-manager/theme-manager-memory.json`
+  and restore after theme switches (including native `omarchy-theme-set`).
 - **Favorites and collections** — star installed themes (`Ctrl+D`), group them
   into named collections (`Ctrl+M` / `Ctrl+Shift+N` / `Ctrl+R`), and switch the
   theme picker between the carousel and a grouped grid (`Ctrl+G`) with
   Favorites, Omarchy defaults, Installed, and your collections as sections. An
   **ACTIVE** badge marks the applied theme apart from the highlighted card, and
   search also matches collection names. The chosen layout and everything else
-  lives in `~/.config/omarchy/theme-collections.json`; nothing is written until
-  you use it.
+  lives in
+  `~/.local/state/io.github.mtolhuys.theme-manager/theme-collections.json`;
+  nothing is written until you use it.
 - **Icons mode** — `Ctrl+I` opens a live-preview grid of installed icon themes;
   the footer Icons chip shows three previews for the _highlighted_ theme
   (sticky memory or package default). **Browse icons** pulls Full Icon Themes
@@ -41,8 +42,9 @@
 - **Themes ⇄ Wallpapers cross-nav** — jump with footer chips or `Ctrl+T` /
   `Ctrl+W`; **Browse** stays on the right next to Icons.
 - **Theme catalog** — sticky filters (listing / availability / sort / min stars)
-  in `~/.config/omarchy/theme-catalog-filters.json` (includes last search query),
-  indexed fuzzy search, safe install/uninstall with confirmations, official
+  in
+  `~/.local/state/io.github.mtolhuys.theme-manager/theme-catalog-filters.json`
+  (includes last search query), indexed fuzzy search, safe install/uninstall with confirmations, official
   Omarchy badge. Rendering stays bounded to a small reusable delegate pool even
   when the catalog reaches its 2,000-record input ceiling.
 - **Wallpaper picker** — favorites (`Ctrl+D`), live palette while browsing,
@@ -52,7 +54,8 @@
   offline default. Unbranded community abstract, minimal, dark, space, and
   neon art plus Commons photography remain optional. Community sort and license
   filters map to provider queries or validated metadata. The last query and
-  filters persist in `~/.config/omarchy/wallpaper-browser-filters.json`;
+  filters persist in
+  `~/.local/state/io.github.mtolhuys.theme-manager/wallpaper-browser-filters.json`;
   downloaded images keep an attribution sidecar and appear in the local carousel.
 
 ## Requirements
@@ -238,10 +241,18 @@ omarchy plugin remove io.github.mtolhuys.theme-manager
 ```
 
 Removing restores the built-in picker. Installed themes and downloaded
-wallpapers stay. Delete `~/.config/omarchy/wallpaper-command-center.json` to
-clear saved wallpaper favorites, `~/.config/omarchy/theme-collections.json` for
-theme favorites and collections, and
-`~/.config/omarchy/theme-manager-memory.json` for sticky memory.
+wallpapers stay. Everything the plugin keeps of its own is in one directory,
+`~/.local/state/io.github.mtolhuys.theme-manager/` (or under `$XDG_STATE_HOME`
+where that is set); delete it to clear saved wallpaper favorites, theme
+favorites and collections, sticky memory and the stored filters, or delete
+`wallpaper-command-center.json`, `theme-collections.json`,
+`theme-manager-memory.json` and the two `*-filters.json` files inside it
+individually.
+
+Before 0.9.0 these lived in `~/.config/omarchy/`. Upgrading copies each one
+into the directory above on the picker's next start and leaves the original
+where it is, so a downgrade still finds it; delete the old copies yourself once
+you are sure you are staying on 0.9.0.
 
 ## Credits
 

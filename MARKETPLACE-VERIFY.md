@@ -23,7 +23,46 @@ the release has been pushed.
 
 Maintainer notes (not required by form):
 
-0.8.0 — Organise your themes (this submission):
+0.9.0 — Run and Store blocks (this submission):
+
+- Internal refactor. Every program the plugin starts now goes through omakit's
+  Run block, and every file it keeps of its own through the Store block. Same
+  commands, same arguments, same exit codes, same output; no new capability,
+  host, process, timer or permission.
+- `omakit verify` reports no findings. The only capability is still `installer`
+  (`install-theme.py`, `install-wallpaper.sh`, `install-hook.sh`), unchanged
+  since 0.7.1.
+- `omakit inspect`, on a clean tree, against 0.8.0 (`f27014c`):
+  process-lifecycle 23 → **0**, unbounded-buffering 18 → **0**,
+  environment-trust 490 → 449, file-and-state-boundary 7 → 7,
+  argument-grammar 17 → 17. The first two classes no longer appear in the
+  report at all: no QML file is left with a bare `Process`, a `StdioCollector`,
+  an `onDataChanged` byte count or a `.signal(9)`, and all 24 runs carry a
+  deadline and a byte cap. `blocks` reports run 0.2.1 and store 0.2.0, both
+  `unmodified` and `complete`.
+- network-egress reads 1 → 3. Both new sites are in `tests/`, not in shipped
+  code: `tests/theme-install-hostile.py` binds a loopback socket to serve the
+  hostile repositories its two tests need.
+- State moves from `~/.config/omarchy/` into the plugin's own `0700` directory
+  under `$XDG_STATE_HOME`: theme memory, collections, starred wallpapers and
+  the two filter files. Each is adopted once, on the first start after the
+  upgrade, and **the originals are left untouched** so a downgrade to 0.8.x
+  still works. `hooks/theme-set.d/50-theme-manager-memory` reads the new root
+  with a fallback to the old one, and closes its own environment, since
+  `omarchy-hook` starts it rather than Run.
+- **One behaviour change, and it is a fix, not part of the refactor.** The
+  `theme-set` hook's unsafe-name guard tested `$THEME_NAME == *$'\0'*`; bash
+  strips the NUL out of the pattern, leaving `**`, which matches every name.
+  The hook returned at that line on every theme switch, so the per-theme
+  wallpaper and icon restore has never run on the hook path — present in 0.8.0
+  and every release before it. Fixed, with six regression tests
+  (`tests/theme-set-hook.test.js`); five of them fail against 0.8.0's hook.
+- Store refuses a write over 64 KiB, which `FileView` did not. Every write site
+  reports a refusal as a status toast rather than losing it quietly. The
+  collections `.bak` now travels in a JSON envelope, since Store writes a value
+  and the unreadable text is by definition not one.
+
+  0.8.0 — Organise your themes:
 
 - Adds local theme organisation to the existing picker: star installed themes,
   group them into user-named collections, and switch the installed-theme view
