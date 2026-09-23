@@ -402,6 +402,20 @@ omarchy_host_test() {
   wait_for_guest_state "the staged filter sheet opens without leaving the catalog" 20 ssh_session \
     "omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState '' | \
        jq -e '.mode == \"wallhaven\" and .filtersOpen == true'" || return 1
+
+  # The load-more wait above returns on the batch's FIRST thumbnail, not its
+  # last: the helper keeps fetching the other twenty-three, three at a time.
+  # Removing the cache while that is still running lets the directory reappear
+  # under the assertion below, which then reads as the filter sheet having
+  # fetched something. Wait for the batch to stop writing first, so the
+  # assertion measures only what moving around the staged sheet does.
+  wait_for_guest_state "the catalog batch stops writing before the sheet is touched" 120 ssh_session \
+    "thumbs=\"\$HOME/.cache/omarchy-theme-manager/wallpaper-thumbs\"; \
+     before=\$(find \"\$thumbs\" -maxdepth 1 -type f 2>/dev/null | wc -l); \
+     sleep 5; \
+     after=\$(find \"\$thumbs\" -maxdepth 1 -type f 2>/dev/null | wc -l); \
+     [[ \$before -eq \$after ]]" || return 1
+
   ssh_session "rm -rf \"\$HOME/.cache/omarchy-theme-manager/wallpaper-thumbs\"" || return 1
   press right || return 1
   press spc || return 1
