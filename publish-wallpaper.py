@@ -7,51 +7,16 @@ import secrets
 import stat
 import sys
 
+from safe_paths import (
+    fail,
+    open_or_create_child,
+    open_owned_directory,
+    require_home,
+    write_all,
+)
 
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
 MIN_WALLPAPER_BYTES = 4096
-
-
-def fail(message):
-    raise RuntimeError(message)
-
-
-def verify_owned_directory(fd, label):
-    info = os.fstat(fd)
-    if not stat.S_ISDIR(info.st_mode):
-        fail(f"{label} is not a directory")
-    if info.st_uid != os.getuid():
-        fail(f"{label} is not owned by the current user")
-    if info.st_mode & 0o022:
-        fail(f"{label} is writable by another user")
-
-
-def open_owned_directory(path, label):
-    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-    fd = os.open(path, flags)
-    verify_owned_directory(fd, label)
-    return fd
-
-
-def open_or_create_child(parent_fd, name, label):
-    try:
-        os.mkdir(name, mode=0o700, dir_fd=parent_fd)
-    except FileExistsError:
-        pass
-
-    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
-    fd = os.open(name, flags, dir_fd=parent_fd)
-    verify_owned_directory(fd, label)
-    return fd
-
-
-def write_all(fd, data):
-    view = memoryview(data)
-    while view:
-        written = os.write(fd, view)
-        if written <= 0:
-            fail("Could not write wallpaper")
-        view = view[written:]
 
 
 def copy_source(source_fd, destination_fd):
@@ -78,13 +43,6 @@ def validate_arguments(theme, source_path):
         fail("Invalid theme name")
     if not source_path or not os.path.isabs(source_path) or len(source_path) > 4096:
         fail("Invalid wallpaper path")
-
-
-def require_home():
-    home = os.environ.get("HOME", "")
-    if not home or not os.path.isabs(home):
-        fail("HOME is not absolute")
-    return home
 
 
 def wallpaper_basename(source_path):
