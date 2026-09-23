@@ -21,7 +21,7 @@ import "FolderBrowseModel.js" as FolderBrowseModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.10.0"
+  readonly property string buildIdentity: "0.10.1"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   // Every program starts through Run (omakit/Run.qml) with a closed

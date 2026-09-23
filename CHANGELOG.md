@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.10.1 - 2026-09-23
+
+- Install the theme-set hook through checked no-follow descriptors. The picker
+  runs `install-hook.sh` on load, without a user asking it to, and it published
+  with `mkdir -p` and `cp` over caller-supplied paths: a symbolic link planted
+  at the destination redirected the copy onto whatever it pointed at, and a
+  planted parent directory did the same.
+- The copy now happens in `install-hook.py`, which walks
+  `~/.config/omarchy/hooks/theme-set.d` one component at a time with
+  `O_NOFOLLOW|O_DIRECTORY`, checks the descriptor it got rather than the name it
+  asked for, and refuses a component owned by another user or writable by one.
+  The destination is derived rather than trusted: anything outside that one
+  directory is refused and only the final name is kept. Publication is an
+  `O_EXCL` temporary file renamed relative to the directory descriptor, with the
+  directory revalidated against its device and inode immediately before the
+  rename, so a directory swapped or chmodded after the walk cannot redirect it.
+  A destination that is a symbolic link or anything other than a regular file is
+  replaced by that rename and never opened for writing.
+- The primitives that do this were already in `publish-wallpaper.py`, written
+  for the same class of finding. They move to `safe_paths.py` so the next helper
+  cannot reimplement the walk and get it wrong; `publish-wallpaper.py` keeps its
+  behaviour and its tests unchanged. Nine tests drive `install-hook.sh` itself
+  against a temporary `HOME`; seven of them fail against the previous script.
+- Both Python helpers now run with `-B`. Sharing a module made the interpreter
+  write `__pycache__/` into the plugin's own installation directory on every
+  run, which is a write the plugin does not own.
+
 ## 0.10.0 - 2026-09-23
 
 - Pick a wallpaper from your own files. **Open folder** in the wallpaper
