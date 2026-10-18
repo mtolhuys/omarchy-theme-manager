@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import "runtime"
+import "runtime/ImagePickerModel.js" as ImagePickerModel
 
 // No window, compositor, user session or installed plugin is used here.
 ShellRoot {
@@ -27,8 +28,9 @@ ShellRoot {
     catalogScriptPath: Quickshell.env("FIXTURE_DIR") + "/themes"
     installScriptPath: Quickshell.env("FIXTURE_DIR") + "/themes"
     helperEnvironment: ({ FIXTURE_CASE: suite.fixtureCase })
-    onCatalogLoaded: rows => {
-      if (suite.check(rows.length === 1, "theme rows survived Run")) suite.themeResponses++
+    onCatalogLoaded: delivered => {
+      const rows = ImagePickerModel.signalRows(delivered)
+      if (suite.check(Array.isArray(rows) && rows.length === 1 && Array.isArray(rows[0].apps), "theme signal rows and nested lists are arrays")) suite.themeResponses++
     }
   }
   WallpaperBrowserController {
@@ -36,8 +38,9 @@ ShellRoot {
     commandPath: Quickshell.env("FIXTURE_DIR") + "/wallpapers"
     cacheHome: Quickshell.env("HOME") + "/.cache"
     helperEnvironment: ({ FIXTURE_CASE: suite.fixtureCase })
-    onResultsReady: rows => {
-      if (suite.check(rows.length === 1, "wallpaper rows survived Run")) suite.wallpaperResponses++
+    onResultsReady: delivered => {
+      const rows = ImagePickerModel.signalRows(delivered)
+      if (suite.check(Array.isArray(rows) && rows.length === 1, "wallpaper rows survived Run as an array")) suite.wallpaperResponses++
     }
   }
 

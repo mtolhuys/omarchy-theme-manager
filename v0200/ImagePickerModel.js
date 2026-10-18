@@ -1,6 +1,27 @@
 const stringValue = (value) => String(value || "")
 const imageValues = (images) => (Array.isArray(images) ? images : [])
 
+// Qt 6.12 can expose a signal's QVariantList as a sequence rather than a
+// JavaScript Array. Normalize that boundary once, including nested lists,
+// before strict model validation. Catalog producers already cap their rows.
+const signalRows = (value) => {
+  if (Array.isArray(value)) return value
+  if (
+    !value ||
+    typeof value !== "object" ||
+    !Number.isInteger(value.length) ||
+    value.length < 0 ||
+    value.length > 2000
+  )
+    return []
+  try {
+    const rows = JSON.parse(JSON.stringify(value))
+    return Array.isArray(rows) ? rows : []
+  } catch (_error) {
+    return []
+  }
+}
+
 const nameForPath = (path) =>
   stringValue(path)
     .split("/")
@@ -313,6 +334,7 @@ const nextSelectedIndexForFilter = (images, selectedIndex, filterText) =>
 
 if (typeof module !== "undefined") {
   module.exports = {
+    signalRows,
     nameForPath,
     labelForPath,
     normalizeSearchText,

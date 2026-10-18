@@ -33,7 +33,7 @@ class CatalogControllersTest(unittest.TestCase):
             shutil.copy(ROOT / "tests/qml/catalog-controllers.qml", target / "shell.qml")
             shutil.copytree(ROOT / "omakit", target / "omakit")
             for name in ("ThemeCatalogController.qml", "ThemeCatalogModel.js",
-                         "WallpaperBrowserController.qml", "WallpaperBrowserModel.js"):
+                         "WallpaperBrowserController.qml", "WallpaperBrowserModel.js", "ImagePickerModel.js"):
                 shutil.copy(ROOT / "v0200" / name, target / "runtime" / name)
             for name in ("themes", "wallpapers"):
                 helper = target / name

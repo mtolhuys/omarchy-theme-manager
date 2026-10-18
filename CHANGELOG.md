@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.3 - 2026-10-18
+
+- Fix the actual list handoff failure on Qt 6.12: QML `var` signals deliver
+  QVariantList sequences for which `Array.isArray` is false. The catalog was
+  loading successfully but the picker discarded every result. Normalize the
+  signal payload before strict array checks for themes, wallpapers, icons,
+  folder listings, and collection memberships, including nested lists.
+- Extend the real QML test through that signal-to-picker boundary, checking
+  native JavaScript arrays instead of just the received list length. This
+  regression fails on 0.10.2 with the same silent discard seen locally.
+
 ## 0.10.2 - 2026-10-18
 
 - Allow Browse themes while local theme inventory is pending or unavailable;

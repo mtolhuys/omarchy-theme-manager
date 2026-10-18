@@ -9,7 +9,7 @@ const read = (path) => readFile(join(process.cwd(), path), "utf8")
 test("keeps the published Theme Manager identity as the sole picker clone", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   assert.equal(manifest.id, "io.github.mtolhuys.theme-manager")
-  assert.equal(manifest.version, "0.10.2")
+  assert.equal(manifest.version, "0.10.3")
   assert.deepEqual(manifest.kinds, ["overlay"])
   assert.match(manifest.entryPoints.overlay, /^v[0-9]{4}\/ImagePicker\.qml$/)
   assert.equal(manifest.omarchy.clonedFrom, "omarchy.image-picker")
@@ -702,4 +702,13 @@ test("theme discovery does not wait for the installation inventory", async () =>
     themeCatalog: { load: () => loads++ }
   })
   assert.equal(loads, 1)
+})
+
+test("normalizes lists at the picker signal boundary before strict array guards", async () => {
+  const runtimeDir = dirname(JSON.parse(await read("manifest.json")).entryPoints.overlay)
+  const picker = await read(join(runtimeDir, "ImagePicker.qml"))
+  assert.match(picker, /enterCatalog\(ImagePickerModel\.signalRows\(rows\)\)/)
+  assert.match(picker, /acceptWallhavenResults\(ImagePickerModel\.signalRows\(rows\), append\)/)
+  assert.match(picker, /acceptIconsBrowseResults\(ImagePickerModel\.signalRows\(rows\), append\)/)
+  assert.match(picker, /applyMemberships\(themeId, ImagePickerModel\.signalRows\(rows\)\)/)
 })

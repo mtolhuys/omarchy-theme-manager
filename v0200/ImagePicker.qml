@@ -22,7 +22,7 @@ import "FolderBrowseModel.js" as FolderBrowseModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.10.2"
+  readonly property string buildIdentity: "0.10.3"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   // Every program starts through Run (omakit/Run.qml) with a closed
@@ -1856,9 +1856,10 @@ Item {
     folderRecovering = false
     folderPendingDirectory = ""
     folderDirectory = directory
-    folderListing = listing
-    replaceImageArray(listing.rows)
-    selectedIndex = FolderBrowseModel.initialIndex(listing.rows, returnTo)
+    const rows = ImagePickerModel.signalRows(listing.rows)
+    folderListing = Object.assign({}, listing, { rows: rows })
+    replaceImageArray(rows)
+    selectedIndex = FolderBrowseModel.initialIndex(rows, returnTo)
     imagesLoaded = true
     layoutSettled = true
 
@@ -2657,7 +2658,7 @@ Item {
     scriptPath: root.pluginScriptPath("icons-browse.sh")
     helperEnvironment: root.helperEnvironment
     sorting: IconBrowseModel.normalizeFilters(root.iconsBrowseFilters).sorting
-    onResultsReady: function(rows, append) { root.acceptIconsBrowseResults(rows, append) }
+    onResultsReady: function(rows, append) { root.acceptIconsBrowseResults(ImagePickerModel.signalRows(rows), append) }
     onIconInstalled: function(themeName, themeNames) { root.onIconPackInstalled(themeName, themeNames) }
     onFocusRequested: Qt.callLater(root.focusPicker)
   }
@@ -2666,7 +2667,7 @@ Item {
     id: wallhaven
     commandPath: root.pluginScriptPath("wallpaper-catalog.py")
     helperEnvironment: root.helperEnvironment
-    onResultsReady: function(rows, append) { root.acceptWallhavenResults(rows, append) }
+    onResultsReady: function(rows, append) { root.acceptWallhavenResults(ImagePickerModel.signalRows(rows), append) }
     onWallpaperReady: function(path) {
       if (root.wallhavenMode) root.finishSelection(path)
     }
@@ -2706,7 +2707,7 @@ Item {
     stockThemes: themeManager.stockThemes
     installedRepositories: themeManager.installedRepositories
     selectedEntry: root.catalogMode ? root.currentItem() : null
-    onCatalogLoaded: function(rows) { root.enterCatalog(rows) }
+    onCatalogLoaded: function(rows) { root.enterCatalog(ImagePickerModel.signalRows(rows)) }
     onThemeInstalled: root.cancel()
     onSourceRequested: function(repositoryUrl) {
       sourceOpener.command = ["/usr/bin/xdg-open", repositoryUrl]
@@ -4941,7 +4942,7 @@ Item {
       collectionsState: themeCollections.collectionsState
       onCanceled: Qt.callLater(root.focusPicker)
       onMembershipsApplied: function(themeId, rows) {
-        themeCollections.applyMemberships(themeId, rows)
+        themeCollections.applyMemberships(themeId, ImagePickerModel.signalRows(rows))
       }
       onCreated: function(name) {
         const error = themeCollections.createCollection(name)

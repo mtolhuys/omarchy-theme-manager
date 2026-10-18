@@ -167,3 +167,12 @@ test("keeps every item stable when the carousel fits inside the pool", () => {
   assert.deepEqual(relatives, [0, 1, 2, -2, -1])
   assert.equal(model.carouselPositionForSlot(5, 5, 5, 17), -1)
 })
+
+test("normalizes signal lists without accepting arbitrary array-like objects", () => {
+  const rows = [{ filePath: "example", apps: ["terminal"] }]
+  assert.equal(model.signalRows(rows), rows)
+  assert.deepEqual(model.signalRows(null), [])
+  assert.deepEqual(model.signalRows("not rows"), [])
+  assert.deepEqual(model.signalRows({ 0: rows[0], length: 1 }), [])
+  assert.deepEqual(model.signalRows({ length: 2001 }), [])
+})
