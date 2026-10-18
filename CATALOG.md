@@ -60,7 +60,10 @@ instead of presenting an install retry as though it could succeed.
 Validated downloads are written atomically under
 `$XDG_CACHE_HOME/omarchy-theme-manager`, normally
 `~/.cache/omarchy-theme-manager`. The cache refreshes every six hours and falls
-back to the last valid copy when a source is unavailable. Run
+back to the last valid copy when a source is unavailable. Official badges are
+optional: if that page has no valid current or cached copy, discovery still
+loads without the badges. Each source has a 45-second download limit; the
+picker allows 100 seconds for both sequential refreshes and rendering. Run
 `catalog.sh --refresh` for an immediate refresh.
 
 Downloads and the QML handoff are bounded before parsing or display: 8 MiB and

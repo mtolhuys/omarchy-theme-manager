@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.10.2 - 2026-10-18
+
+- Allow Browse themes while local theme inventory is pending or unavailable;
+  installation still waits for inventory so installed-name checks stay intact.
+- Qualify shell palette references for Qt 6.12 and derive the backdrop from
+  the base color instead of Omarchy's removed image-picker scrim property.
+- Keep discovery available when the optional official-badge source fails,
+  ignore personal curl configuration, and allow both source refreshes to
+  finish within the catalog deadline.
+- Cancel wallpaper requests on leaving the browser; show incompatible provider
+  records and process failure reasons instead of a misleading empty catalog.
+- Extend runtime diagnostics and add real windowless QML loading, failure and
+  retry tests, plus regressions for the Browse gate and optional badge outage.
+- Verify Run (19 scenarios) and Store (15 scenarios) with Omakit on its
+  disposable Omarchy 4.0.4-1 guest; this is plumbing proof, not a full browsing
+  UI acceptance run.
+
 ## 0.10.1 - 2026-09-23
 
 - Install the theme-set hook through checked no-follow descriptors. The picker

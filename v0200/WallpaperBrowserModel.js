@@ -280,9 +280,14 @@ const parseSearchResponse = (text, cacheHome) => {
     responseText.length > maxSearchResponseLength ? { payload: null } : parsedJson(responseText)
   const error = searchPayloadError(responseText, parsed)
   if (error) return searchFailure(error)
+  const rows = uniqueWallpaperRows(parsed.payload.wallpapers, cacheHome)
+  if (parsed.payload.wallpapers.length > 0 && rows.length === 0)
+    return searchFailure(
+      "The wallpaper catalog returned no supported records; try another collection or retry"
+    )
   return {
     error: "",
-    rows: uniqueWallpaperRows(parsed.payload.wallpapers, cacheHome),
+    rows,
     meta: searchMeta(parsed.payload)
   }
 }

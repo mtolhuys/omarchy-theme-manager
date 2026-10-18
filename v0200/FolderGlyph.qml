@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // A folder drawn rather than typed. The picker's cards have to read the same
 // on every theme, and an icon font that happens to miss one codepoint would
@@ -9,8 +10,8 @@ Item {
 
   // "folder" carries images, "empty" does not, "up" is the step back out.
   property string kind: "folder"
-  property color accent: Color.accent
-  property color foreground: Color.foreground
+  property color accent: Commons.Color.accent
+  property color foreground: Commons.Color.foreground
   property real size: Style.space(44)
 
   readonly property bool isUp: kind === "up"

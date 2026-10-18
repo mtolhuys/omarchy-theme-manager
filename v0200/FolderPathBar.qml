@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // The folder browser's breadcrumb: every step of the path back to Home is a
@@ -13,8 +14,8 @@ Row {
   property string summary: ""
   property bool showHidden: false
   property bool busy: false
-  property color foreground: Color.foreground
-  property color accent: Color.accent
+  property color foreground: Commons.Color.foreground
+  property color accent: Commons.Color.accent
 
   readonly property int maxVisibleSegments: 4
   readonly property var visibleSegments: {

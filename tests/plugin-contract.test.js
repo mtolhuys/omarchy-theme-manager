@@ -9,7 +9,7 @@ const read = (path) => readFile(join(process.cwd(), path), "utf8")
 test("keeps the published Theme Manager identity as the sole picker clone", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   assert.equal(manifest.id, "io.github.mtolhuys.theme-manager")
-  assert.equal(manifest.version, "0.10.1")
+  assert.equal(manifest.version, "0.10.2")
   assert.deepEqual(manifest.kinds, ["overlay"])
   assert.match(manifest.entryPoints.overlay, /^v[0-9]{4}\/ImagePicker\.qml$/)
   assert.equal(manifest.omarchy.clonedFrom, "omarchy.image-picker")
@@ -673,4 +673,33 @@ test("keeps folder browsing inside the home directory and on the install path", 
     picker,
     /function chooseFolderImage\([\s\S]*?folderRememberedDirectory = folderDirectory[\s\S]*?saveWallpaperCommandState\(\)/
   )
+})
+
+test("qualifies shell palette references and avoids removed image-picker tokens", async () => {
+  const { readdir } = require("node:fs/promises")
+  const runtimeDir = dirname(JSON.parse(await read("manifest.json")).entryPoints.overlay)
+  for (const file of await readdir(runtimeDir)) {
+    if (!file.endsWith(".qml")) continue
+    const source = await read(join(runtimeDir, file))
+    assert.doesNotMatch(source, /(?<![\w.])Color\./, file)
+    assert.doesNotMatch(source, /Commons\.Color\.imagePicker\.scrim/, file)
+  }
+})
+
+test("theme discovery does not wait for the installation inventory", async () => {
+  const { runInNewContext } = require("node:vm")
+  const runtimeDir = dirname(JSON.parse(await read("manifest.json")).entryPoints.overlay)
+  const source = await read(join(runtimeDir, "ImagePicker.qml"))
+  const body = source.match(/function openCatalog\(\) \{([\s\S]*?)\n  \}/)[1]
+  let loads = 0
+  runInNewContext("(function() {" + body + "})()", {
+    wallhavenMode: false,
+    folderMode: false,
+    iconsMode: false,
+    iconsBrowseMode: false,
+    catalogMode: false,
+    themeManager: { themePickerActive: true, inventoryReady: false, refreshInventory: () => {} },
+    themeCatalog: { load: () => loads++ }
+  })
+  assert.equal(loads, 1)
 })

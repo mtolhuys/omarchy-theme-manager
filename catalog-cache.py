@@ -170,6 +170,7 @@ def create_staging_file(cache_fd):
 def curl_command(url, maximum, output_fd):
     return [
         "curl",
+        "-q",
         "--fail",
         "--location",
         "--silent",
@@ -308,15 +309,21 @@ def render_catalog(cache_fd, max_age, force):
     catalog = refresh(
         cache_fd, "themes-data.json", CATALOG_URL, CATALOG_MAX_BYTES, validate_catalog, max_age, force
     )
-    official = refresh(
-        cache_fd,
-        "official-themes.html",
-        OFFICIAL_URL,
-        OFFICIAL_MAX_BYTES,
-        validate_official,
-        max_age,
-        force,
-    )
+    # Badges are optional metadata; a changed or unavailable page must not
+    # disable discovery when the community dataset is valid.
+    try:
+        official = refresh(
+            cache_fd,
+            "official-themes.html",
+            OFFICIAL_URL,
+            OFFICIAL_MAX_BYTES,
+            validate_official,
+            max_age,
+            force,
+        )
+    except (OSError, RuntimeError, UnicodeError, json.JSONDecodeError) as error:
+        print(f"Official theme badges unavailable: {error}", file=sys.stderr)
+        official = []
     return render(catalog, official)
 
 

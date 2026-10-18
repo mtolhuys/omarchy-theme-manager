@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "IconBrowseModel.js" as IconBrowseModel
 
@@ -10,10 +11,10 @@ Item {
 
   property bool opened: false
   property string draftSorting: "new"
-  property color background: Color.background
-  property color foreground: Color.foreground
-  property color scrim: Util.alpha(Color.background, 0.82)
-  property color accent: Color.accent
+  property color background: Commons.Color.background
+  property color foreground: Commons.Color.foreground
+  property color scrim: Util.alpha(Commons.Color.background, 0.82)
+  property color accent: Commons.Color.accent
   property int sortingCursor: 0
   readonly property var sortingOptions: IconBrowseModel.getSortingOptions()
 

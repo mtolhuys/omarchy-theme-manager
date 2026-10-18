@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "ThemeCollectionsModel.js" as ThemeCollectionsModel
 
@@ -20,10 +21,10 @@ Item {
   property int rowCursor: 0
   property string draftName: ""
   property bool confirmingDelete: false
-  property color background: Color.background
-  property color foreground: Color.foreground
-  property color scrim: Util.alpha(Color.background, 0.82)
-  property color accent: Color.accent
+  property color background: Commons.Color.background
+  property color foreground: Commons.Color.foreground
+  property color scrim: Util.alpha(Commons.Color.background, 0.82)
+  property color accent: Commons.Color.accent
 
   readonly property bool nameMode: mode === "create" || mode === "rename"
   readonly property string nameError: nameMode
@@ -197,7 +198,7 @@ Item {
     height: Style.space(root.mode === "memberships" ? 420 : 250)
     anchors.centerIn: parent
     color: root.background
-    borderSpec: Border.flat(root.confirmingDelete ? Color.urgent : root.accent, Style.normalBorderWidth)
+    borderSpec: Border.flat(root.confirmingDelete ? Commons.Color.urgent : root.accent, Style.normalBorderWidth)
     radius: Style.cornerRadius
     padding: Style.space(24)
 
@@ -220,7 +221,7 @@ Item {
           anchors.right: parent.right
           anchors.top: parent.top
           text: root.title
-          color: root.confirmingDelete ? Color.urgent : root.foreground
+          color: root.confirmingDelete ? Commons.Color.urgent : root.foreground
           font.pixelSize: Style.font.heading
           font.weight: Font.DemiBold
           elide: Text.ElideRight
@@ -335,7 +336,7 @@ Item {
           anchors.bottom: parent.bottom
           visible: !root.confirmingDelete && !!root.draftName && !!root.nameError
           text: root.nameError
-          color: Color.urgent
+          color: Commons.Color.urgent
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
           textFormat: Text.PlainText
@@ -365,8 +366,8 @@ Item {
           Button {
             visible: root.mode === "rename" && !root.confirmingDelete
             text: "Delete collection"
-            foreground: Color.urgent
-            accent: Color.urgent
+            foreground: Commons.Color.urgent
+            accent: Commons.Color.urgent
             bordered: true
             horizontalPadding: Style.space(12)
             verticalPadding: Style.space(7)
@@ -392,8 +393,8 @@ Item {
               ? "Delete"
               : (root.mode === "memberships" ? "Save" : (root.mode === "create" ? "Create" : "Rename"))
             selected: true
-            foreground: root.confirmingDelete ? Color.urgent : root.foreground
-            accent: root.confirmingDelete ? Color.urgent : root.accent
+            foreground: root.confirmingDelete ? Commons.Color.urgent : root.foreground
+            accent: root.confirmingDelete ? Commons.Color.urgent : root.accent
             bordered: true
             horizontalPadding: Style.space(14)
             verticalPadding: Style.space(7)

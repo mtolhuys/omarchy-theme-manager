@@ -295,3 +295,13 @@ test("accepts downloads only from Theme Manager's wallpaper directory", () => {
   ])
   assert.deepEqual(model.downloadArguments("../bad"), [])
 })
+
+test("reports incompatible provider records instead of presenting an empty catalog", () => {
+  const parsed = model.parseSearchResponse(
+    response([wallpaper("1", { collection: "unknown" })]),
+    "/tmp"
+  )
+  assert.match(parsed.error, /no supported records/i)
+  assert.deepEqual(parsed.rows, [])
+  assert.equal(model.parseSearchResponse(response([]), "/tmp").error, "")
+})

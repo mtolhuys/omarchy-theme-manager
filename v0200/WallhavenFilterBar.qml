@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 Row {
@@ -8,8 +9,8 @@ Row {
   property string summary: "Abstract  ·  Featured  ·  Any open license"
   property bool filtersActive: false
   property int activeCount: 0
-  property color foreground: Color.foreground
-  property color accent: Color.accent
+  property color foreground: Commons.Color.foreground
+  property color accent: Commons.Color.accent
 
   signal openRequested()
 

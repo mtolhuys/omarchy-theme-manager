@@ -6,6 +6,7 @@ import QtQuick.Controls
 import QtQuick.Effects
 import QtQuick.Shapes
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "../omakit"
 import "ImagePickerModel.js" as ImagePickerModel
@@ -21,7 +22,7 @@ import "FolderBrowseModel.js" as FolderBrowseModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.10.1"
+  readonly property string buildIdentity: "0.10.2"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   // Every program starts through Run (omakit/Run.qml) with a closed
@@ -228,23 +229,23 @@ Item {
   readonly property string catalogFilterSummary: ThemeCatalogModel.catalogFilterSummary(catalogFilters)
   readonly property bool catalogFiltersActive: ThemeCatalogModel.catalogFiltersActive(catalogFilters)
   readonly property int catalogFilterActiveCount: ThemeCatalogModel.catalogFilterActiveCount(catalogFilters)
-  // Bound to the central [image-picker] section in shell.toml via Color.qml.
+  // Bound to the central [image-picker] section in shell.toml via Commons.Color.qml.
   // dimColor tints unselected slices and text outlines on top of the scrim.
-  property color dimColor: Color.background
-  property color foreground: Color.imagePicker.text
-  property color scrim: Color.imagePicker.scrim
-  property color selectedBorder: Color.imagePicker.selectedBorder
-  property color unselectedBorder: Color.imagePicker.unselectedBorder
+  property color dimColor: Commons.Color.background
+  property color foreground: Commons.Color.imagePicker.text
+  property color scrim: Util.alpha(Commons.Color.background, 0.82)
+  property color selectedBorder: Commons.Color.imagePicker.selectedBorder
+  property color unselectedBorder: Commons.Color.imagePicker.unselectedBorder
   readonly property bool livePaletteReady: wallpaperPickerActive && wallpaperPalette.ready
   readonly property color livePaletteBase: livePaletteReady
-    ? mixColor(Color.background, wallpaperPalette.base, 0.58)
-    : Color.background
+    ? mixColor(Commons.Color.background, wallpaperPalette.base, 0.58)
+    : Commons.Color.background
   readonly property color livePaletteAccent: livePaletteReady
-    ? mixColor(Color.accent, wallpaperPalette.accent, 0.78)
-    : Color.accent
+    ? mixColor(Commons.Color.accent, wallpaperPalette.accent, 0.78)
+    : Commons.Color.accent
   readonly property color livePaletteSecondary: livePaletteReady
-    ? mixColor(Color.accent, wallpaperPalette.secondary, 0.7)
-    : Color.accent
+    ? mixColor(Commons.Color.accent, wallpaperPalette.secondary, 0.7)
+    : Commons.Color.accent
   readonly property color activeSelectedBorder: livePaletteReady
     ? livePaletteAccent
     : selectedBorder
@@ -365,6 +366,15 @@ Item {
       catalogCanInstall: themeCatalog.canInstallSelected,
       catalogCanOpenSource: themeCatalog.canOpenSelectedSource,
       catalogError: themeCatalog.errorMessage,
+      catalogLoading: themeCatalog.loading,
+      catalogRows: themeCatalog.rows.length,
+      themeInventoryReady: themeManager.inventoryReady,
+      themeInventoryError: themeManager.errorMessage,
+      wallpaperLoading: wallhaven.loading,
+      wallpaperError: wallhaven.errorMessage,
+      wallpaperTotal: wallhaven.totalResults,
+      catalogScriptPath: themeCatalog.catalogScriptPath,
+      wallpaperScriptPath: wallhaven.commandPath,
       favoriteCount: favoriteIds.length,
       currentFavorite: currentFavorite,
       favoritesOnly: favoritesOnly,
@@ -1375,9 +1385,10 @@ Item {
     if (wallhavenMode
         || folderMode
         || iconsMode
+        || iconsBrowseMode
         || !themeManager.themePickerActive
-        || !themeManager.inventoryReady
         || catalogMode) return
+    if (!themeManager.inventoryReady) themeManager.refreshInventory()
     themeCatalog.load()
   }
 
@@ -2304,8 +2315,8 @@ Item {
   WallpaperPalette {
     id: wallpaperPalette
     sourcePath: root.currentPaletteSource()
-    fallbackBase: Color.background
-    fallbackAccent: Color.accent
+    fallbackBase: Commons.Color.background
+    fallbackAccent: Commons.Color.accent
   }
 
   // Lifecycle hooks invoked by omarchy-shell summon/hide. The shell host owns
@@ -2690,6 +2701,7 @@ Item {
     helperEnvironment: root.helperEnvironment
     omarchyEnvironment: root.omarchyEnvironment
     pickerOpen: root.opened
+    inventoryReady: themeManager.inventoryReady
     installedThemes: themeManager.installedThemes
     stockThemes: themeManager.stockThemes
     installedRepositories: themeManager.installedRepositories
@@ -3746,7 +3758,7 @@ Item {
           readonly property color menuAccent: root.livePaletteAccent
           readonly property color menuBackground: root.readableBackdrop(root.dimColor, 0.96)
           readonly property var menuBorderSpec: Border.localOrSurfaceSpec(
-            "popups", "border", Util.alpha(root.foreground, 0.28), Color.popups.border, Style.normalBorderWidth)
+            "popups", "border", Util.alpha(root.foreground, 0.28), Commons.Color.popups.border, Style.normalBorderWidth)
 
           function open() { actionsPopup.open() }
           function close() { actionsPopup.close() }
@@ -4032,7 +4044,7 @@ Item {
           text: "Back"
           tooltipText: "Return to this theme's wallpapers (Escape)"
           foreground: root.foreground
-          accent: Color.accent
+          accent: Commons.Color.accent
           bordered: true
           background: root.chromeFill
           horizontalPadding: Style.space(12)
@@ -4161,7 +4173,7 @@ Item {
           text: "Back"
           tooltipText: "Return to installed icon themes (Escape)"
           foreground: root.foreground
-          accent: Color.accent
+          accent: Commons.Color.accent
           bordered: true
           background: root.chromeFill
           horizontalPadding: Style.space(12)
@@ -4178,8 +4190,8 @@ Item {
           anchors.verticalCenter: parent.verticalCenter
           text: iconBrowse.downloading ? "Installing…" : "Install"
           tooltipText: "Download and install this icon pack (Enter)"
-          foreground: Color.accent
-          accent: Color.accent
+          foreground: Commons.Color.accent
+          accent: Commons.Color.accent
           bordered: true
           background: root.chromeFill
           horizontalPadding: Style.space(12)
@@ -4200,7 +4212,7 @@ Item {
             ? "Load more Pling icon themes (Ctrl+N)"
             : "All available results are loaded"
           foreground: root.foreground
-          accent: Color.accent
+          accent: Commons.Color.accent
           bordered: true
           background: root.chromeFill
           horizontalPadding: Style.space(12)
@@ -4219,7 +4231,7 @@ Item {
           text: "Back"
           tooltipText: "Return from icon themes (Escape)"
           foreground: root.foreground
-          accent: Color.accent
+          accent: Commons.Color.accent
           bordered: true
           background: root.chromeFill
           horizontalPadding: Style.space(12)
@@ -4240,7 +4252,7 @@ Item {
           text: "Wallpapers"
           tooltipText: "Open wallpaper picker (W / Ctrl+W)"
           foreground: root.foreground
-          accent: Color.accent
+          accent: Commons.Color.accent
           bordered: true
           background: root.chromeFill
           horizontalPadding: Style.space(12)
@@ -4259,7 +4271,7 @@ Item {
             ? "Back to the carousel (Ctrl+G)"
             : "Favorites and collections as a grid (Ctrl+G)  ·  Ctrl+D star  ·  Ctrl+M collections"
           foreground: root.foreground
-          accent: Color.accent
+          accent: Commons.Color.accent
           bordered: true
           background: root.chromeFill
           horizontalPadding: Style.space(12)
@@ -4292,8 +4304,7 @@ Item {
             && !root.iconsBrowseMode
             && !root.wallpaperPickerActive
             && themeManager.themePickerActive
-          enabled: themeManager.inventoryReady
-            && !themeCatalog.loading
+          enabled: !themeCatalog.loading
             && !themeManager.busy
           anchors.verticalCenter: parent.verticalCenter
           x: {
@@ -4302,12 +4313,10 @@ Item {
             if (iconsBrowseButton.visible) offset += iconsBrowseButton.width + Style.space(8)
             return parent.width - width - offset
           }
-          text: !themeManager.inventoryReady
-            ? "Indexing…"
-            : (themeCatalog.loading ? "Loading…" : "Browse themes")
+          text: themeCatalog.loading ? "Loading…" : "Browse themes"
           tooltipText: "Browse community themes from verified catalog metadata (B / Ctrl+B)"
           foreground: root.foreground
-          accent: Color.accent
+          accent: Commons.Color.accent
           bordered: true
           background: root.chromeFill
           horizontalPadding: Style.space(12)
@@ -4323,7 +4332,7 @@ Item {
           text: "Back"
           tooltipText: "Return to installed themes (Escape)"
           foreground: root.foreground
-          accent: Color.accent
+          accent: Commons.Color.accent
           bordered: true
           background: root.chromeFill
           horizontalPadding: Style.space(12)
@@ -4339,7 +4348,7 @@ Item {
           text: "Back"
           tooltipText: "Return to local wallpapers (Escape / W)"
           foreground: root.foreground
-          accent: Color.accent
+          accent: Commons.Color.accent
           bordered: true
           background: root.chromeFill
           horizontalPadding: Style.space(12)
@@ -4360,7 +4369,7 @@ Item {
             ? "Load two more wallpaper pages (Ctrl+N)"
             : "All available results are loaded"
           foreground: root.foreground
-          accent: Color.accent
+          accent: Commons.Color.accent
           bordered: true
           background: root.chromeFill
           horizontalPadding: Style.space(12)
@@ -4390,8 +4399,8 @@ Item {
           tooltipText: themeManager.selectedThemeIsCurrent
             ? "Switch to another theme before uninstalling this one"
             : "Uninstall this user-installed theme (Delete)"
-          foreground: themeManager.selectedThemeIsCurrent ? Color.muted : Color.urgent
-          accent: Color.urgent
+          foreground: themeManager.selectedThemeIsCurrent ? Commons.Color.muted : Commons.Color.urgent
+          accent: Commons.Color.urgent
           bordered: true
           background: root.chromeFill
           horizontalPadding: Style.space(12)
@@ -4411,12 +4420,13 @@ Item {
             if (!item) return ""
             if (themeCatalog.canOpenSelectedSource)
               return "Open the repository; Install returns immediately afterward"
+            if (!themeManager.inventoryReady) return "Waiting for the installed theme inventory"
             if (item.installed) return "This theme is already installed"
             if (item.stockConflict) return "A built-in theme already uses this name"
             return "Install a sanitized exact snapshot (Enter)"
           }
-          foreground: themeCatalog.canActivateSelected ? Color.accent : Color.muted
-          accent: Color.accent
+          foreground: themeCatalog.canActivateSelected ? Commons.Color.accent : Commons.Color.muted
+          accent: Commons.Color.accent
           bordered: true
           background: root.chromeFill
           horizontalPadding: Style.space(12)
@@ -4451,7 +4461,7 @@ Item {
         filtersActive: root.wallhavenFiltersActive
         activeCount: root.wallhavenFilterActiveCount
         foreground: root.foreground
-        accent: Color.accent
+        accent: Commons.Color.accent
         onOpenRequested: root.openWallhavenFilters()
       }
 
@@ -4474,7 +4484,7 @@ Item {
             ? root.imageArray.length + " of " + wallhaven.totalResults + " loaded  ·  Type to search"
             : "Type to search open wallpapers"
         }
-        color: wallhaven.errorMessage ? Color.urgent : root.foreground
+        color: wallhaven.errorMessage ? Commons.Color.urgent : root.foreground
         opacity: 0.9
         style: Text.Outline
         styleColor: root.chromeOutline
@@ -4521,7 +4531,7 @@ Item {
           if (item && item.entryKind === "parent") return "Enter goes back up  ·  Type to filter"
           return "Enter opens the folder  ·  Backspace goes up  ·  Type to filter"
         }
-        color: folderBrowse.errorMessage ? Color.urgent : root.foreground
+        color: folderBrowse.errorMessage ? Commons.Color.urgent : root.foreground
         opacity: 0.9
         style: Text.Outline
         styleColor: root.chromeOutline
@@ -4541,7 +4551,7 @@ Item {
         summary: root.iconsBrowseFilterSummary
         filtersActive: root.iconsBrowseFiltersActive
         foreground: root.foreground
-        accent: Color.accent
+        accent: Commons.Color.accent
         onOpenRequested: root.openIconsBrowseFilters()
       }
 
@@ -4563,7 +4573,7 @@ Item {
             ? root.imageArray.length + " of " + iconBrowse.totalResults + " loaded  ·  Type to search"
             : "Type to search Pling icon themes"
         }
-        color: iconBrowse.errorMessage ? Color.urgent : root.foreground
+        color: iconBrowse.errorMessage ? Commons.Color.urgent : root.foreground
         opacity: 0.9
         style: Text.Outline
         styleColor: root.chromeOutline
@@ -4584,7 +4594,7 @@ Item {
         filtersActive: root.catalogFiltersActive
         activeCount: root.catalogFilterActiveCount
         foreground: root.foreground
-        accent: Color.accent
+        accent: Commons.Color.accent
         onOpenRequested: root.openCatalogFilters()
       }
 
@@ -4631,7 +4641,7 @@ Item {
             ? ("Search: " + root.filterText + "  ·  " + root.imageArray.length + " shown"
                 + (root.catalogFiltersActive ? "  ·  " + root.catalogFilterSummary : ""))
             : root.filterText
-          color: root.catalogMode && root.catalogFiltersActive ? Color.accent : root.foreground
+          color: root.catalogMode && root.catalogFiltersActive ? Commons.Color.accent : root.foreground
           opacity: 0.9
           style: Text.Outline
           styleColor: root.chromeOutline
@@ -4646,7 +4656,7 @@ Item {
             && (themeManager.errorMessage !== "" || themeCatalog.errorMessage !== "")
           width: parent.width
           text: themeCatalog.errorMessage || themeManager.errorMessage
-          color: Color.urgent
+          color: Commons.Color.urgent
           style: Text.Outline
           styleColor: root.chromeOutline
           font.pixelSize: Style.font.caption
@@ -4666,7 +4676,7 @@ Item {
         background: root.dimColor
         foreground: root.foreground
         scrim: root.activeScrim
-        selectedText: Color.accent
+        selectedText: Commons.Color.accent
         onCanceled: themeCatalog.cancelInstall()
         onConfirmed: themeCatalog.confirmInstall()
       }
@@ -4681,7 +4691,7 @@ Item {
         background: root.dimColor
         foreground: root.foreground
         scrim: root.activeScrim
-        selectedText: Color.accent
+        selectedText: Commons.Color.accent
         onCanceled: themeManager.cancelUninstall()
         onConfirmed: themeManager.confirmUninstall()
       }
@@ -4696,7 +4706,7 @@ Item {
         background: root.dimColor
         foreground: root.foreground
         scrim: root.activeScrim
-        selectedText: Color.accent
+        selectedText: Commons.Color.accent
         onCanceled: iconBrowse.cancelInstall()
         onConfirmed: iconBrowse.confirmInstall()
       }
@@ -4725,7 +4735,7 @@ Item {
           : (folderBrowse.loading
               ? "Reading " + root.folderLoadingPath + "…"
               : "Nothing to show in " + root.folderLoadingPath)
-        color: folderBrowse.errorMessage ? Color.urgent : root.foreground
+        color: folderBrowse.errorMessage ? Commons.Color.urgent : root.foreground
         font.pixelSize: Style.font.title
         font.weight: Font.DemiBold
         horizontalAlignment: Text.AlignHCenter
@@ -4753,7 +4763,7 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         text: "Back"
         foreground: root.foreground
-        accent: Color.accent
+        accent: Commons.Color.accent
         bordered: true
         background: root.chromeFill
         horizontalPadding: Style.space(12)
@@ -4787,7 +4797,7 @@ Item {
             ? "No icon themes found for “" + root.filterText + "”"
             : "No icon themes found"
         }
-        color: iconBrowse.errorMessage ? Color.urgent : root.foreground
+        color: iconBrowse.errorMessage ? Commons.Color.urgent : root.foreground
         font.pixelSize: Style.font.title
         font.weight: Font.DemiBold
         horizontalAlignment: Text.AlignHCenter
@@ -4832,7 +4842,7 @@ Item {
             ? "No open wallpapers found for “" + root.filterText + "”"
             : "No open wallpapers found"
         }
-        color: wallhaven.errorMessage ? Color.urgent : root.foreground
+        color: wallhaven.errorMessage ? Commons.Color.urgent : root.foreground
         font.pixelSize: Style.font.title
         font.weight: Font.DemiBold
         horizontalAlignment: Text.AlignHCenter
@@ -4848,7 +4858,7 @@ Item {
         text: root.wallhavenFiltersActive
           ? ("Active filters may hide matches  ·  " + root.wallhavenFilterSummary)
           : "Type to search  ·  Escape to return to local wallpapers"
-        color: root.wallhavenFiltersActive ? Color.accent : root.foreground
+        color: root.wallhavenFiltersActive ? Commons.Color.accent : root.foreground
         opacity: 0.85
         font.pixelSize: Style.font.body
         textFormat: Text.PlainText
@@ -4864,7 +4874,7 @@ Item {
         filtersActive: root.wallhavenFiltersActive
         activeCount: root.wallhavenFilterActiveCount
         foreground: root.foreground
-        accent: Color.accent
+        accent: Commons.Color.accent
         onOpenRequested: root.openWallhavenFilters()
       }
 
@@ -4875,7 +4885,7 @@ Item {
         anchors.horizontalCenter: parent.horizontalCenter
         text: "Retry"
         foreground: root.foreground
-        accent: Color.accent
+        accent: Commons.Color.accent
         bordered: true
         background: root.chromeFill
         horizontalPadding: Style.space(12)
@@ -4891,7 +4901,7 @@ Item {
       background: root.dimColor
       foreground: root.foreground
       scrim: root.readableBackdrop(root.dimColor, 0.92)
-      accent: Color.accent
+      accent: Commons.Color.accent
       onCanceled: Qt.callLater(root.focusPicker)
       onApplied: function(filters) { root.applyWallhavenFilters(filters) }
     }
@@ -4903,7 +4913,7 @@ Item {
       background: root.dimColor
       foreground: root.foreground
       scrim: root.readableBackdrop(root.dimColor, 0.92)
-      accent: Color.accent
+      accent: Commons.Color.accent
       onCanceled: Qt.callLater(root.focusPicker)
       onApplied: function(filters) { root.applyThemeCatalogFilters(filters) }
     }
@@ -4915,7 +4925,7 @@ Item {
       background: root.dimColor
       foreground: root.foreground
       scrim: root.readableBackdrop(root.dimColor, 0.92)
-      accent: Color.accent
+      accent: Commons.Color.accent
       onCanceled: Qt.callLater(root.focusPicker)
       onApplied: function(filters) { root.applyIconsBrowseFilters(filters) }
     }
@@ -4927,7 +4937,7 @@ Item {
       background: root.dimColor
       foreground: root.foreground
       scrim: root.readableBackdrop(root.dimColor, 0.92)
-      accent: Color.accent
+      accent: Commons.Color.accent
       collectionsState: themeCollections.collectionsState
       onCanceled: Qt.callLater(root.focusPicker)
       onMembershipsApplied: function(themeId, rows) {

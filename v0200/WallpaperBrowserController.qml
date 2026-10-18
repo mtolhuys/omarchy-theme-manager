@@ -42,6 +42,8 @@ Item {
     requestSerial += 1
     downloadSerial += 1
     queuedRequest = null
+    searchProc.cancel()
+    downloadProc.cancel()
     activeQuery = ""
     activeFilterKey = ""
     nextRawPage = 1
@@ -169,7 +171,7 @@ Item {
           result.stderr,
           result.state === "timeout"
             ? "The wallpaper catalog did not answer within two minutes"
-            : "Wallpaper search failed. Check the Theme Manager catalog helper."
+            : (result.state + (result.reason ? ": " + result.reason : ": Wallpaper search failed"))
         )
       }
 
@@ -208,7 +210,7 @@ Item {
           result.stderr,
           result.state === "timeout"
             ? "The wallpaper download did not finish within three minutes"
-            : "The wallpaper catalog could not download this wallpaper"
+            : (result.state + (result.reason ? ": " + result.reason : ": Wallpaper download failed"))
         )
       }
 

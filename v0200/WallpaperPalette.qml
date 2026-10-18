@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import "../omakit"
 import "WallpaperPaletteModel.js" as WallpaperPaletteModel
 
@@ -7,8 +8,8 @@ Item {
   id: root
 
   property string sourcePath: ""
-  property color fallbackBase: Color.background
-  property color fallbackAccent: Color.accent
+  property color fallbackBase: Commons.Color.background
+  property color fallbackAccent: Commons.Color.accent
   property color base: fallbackBase
   property color accent: fallbackAccent
   property color secondary: fallbackAccent

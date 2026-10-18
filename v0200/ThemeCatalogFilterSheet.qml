@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "ThemeCatalogModel.js" as ThemeCatalogModel
 
@@ -13,10 +14,10 @@ Item {
   property string draftAvailability: "all"
   property string draftSort: "best"
   property int draftMinStars: 0
-  property color background: Color.background
-  property color foreground: Color.foreground
-  property color scrim: Util.alpha(Color.background, 0.82)
-  property color accent: Color.accent
+  property color background: Commons.Color.background
+  property color foreground: Commons.Color.foreground
+  property color scrim: Util.alpha(Commons.Color.background, 0.82)
+  property color accent: Commons.Color.accent
   property int cursorSection: 0
   property int listingCursor: 0
   property int availabilityCursor: 0

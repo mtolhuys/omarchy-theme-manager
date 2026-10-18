@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import "WallpaperBrowserModel.js" as WallpaperBrowserModel
 
@@ -12,10 +13,10 @@ Item {
   property string draftCollection: "omarchy"
   property string draftSorting: "featured"
   property string draftLicense: "any"
-  property color background: Color.background
-  property color foreground: Color.foreground
-  property color scrim: Util.alpha(Color.background, 0.82)
-  property color accent: Color.accent
+  property color background: Commons.Color.background
+  property color foreground: Commons.Color.foreground
+  property color scrim: Util.alpha(Commons.Color.background, 0.82)
+  property color accent: Commons.Color.accent
   property int cursorSection: 0
   property int collectionCursor: 0
   property int sortingCursor: 0

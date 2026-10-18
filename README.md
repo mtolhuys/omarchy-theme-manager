@@ -247,14 +247,33 @@ application configuration.
 npm run quality
 ```
 
-Acceptance testing belongs in the disposable plugin lab:
+The quality command includes windowless QML tests of both real catalog
+controllers and the unmodified Run block. They use an isolated temporary home
+and fixture providers; no window or desktop session is opened. The tests cover
+loading, provider failure, retry, and the inventory gate on installation.
+
+Use Omakit for the marketplace checks and disposable plumbing proofs:
 
 ```bash
-cd ~/Projects/omarchy/plugin-lab
-./bin/lab plugin ~/Projects/plugins/omarchy-theme-manager/tests/lab/acceptance.sh
-./bin/lab plugin ~/Projects/plugins/omarchy-theme-manager/tests/lab/performance.sh
-./bin/lab plugin ~/Projects/plugins/omarchy-theme-manager/tests/lab/rate-limit-fallback.sh
-./bin/lab plugin ~/Projects/plugins/omarchy-theme-manager/tests/lab/marketing-preview.sh
+omakit verify . --json
+omakit submit . --category Appearance --tags system --offline --json
+omakit inspect . --json
+omakit lab inspect
+omakit lab prove run --offline --json
+omakit lab prove store --offline --json
+```
+
+The current Omakit lab proves its Run and Store suites on a disposable Omarchy
+guest. It does not accept a custom plugin browsing scenario. The older scripts
+under `tests/lab/` are retained as historical scenarios, not as supported
+Omakit commands or proof of the current picker UI.
+
+`runtimeState` reports catalog loading, row counts, helper paths, inventory
+readiness, and wallpaper errors for troubleshooting without guessing from an
+empty view. After updating, open the picker and inspect it with:
+
+```bash
+omarchy-shell shell call io.github.mtolhuys.theme-manager runtimeState ''
 ```
 
 Read [UPSTREAM.md](UPSTREAM.md) before rebasing derived picker files.

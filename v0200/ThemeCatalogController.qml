@@ -13,6 +13,7 @@ Item {
   property var helperEnvironment: ({})
   property var omarchyEnvironment: ({})
   property bool pickerOpen: false
+  property bool inventoryReady: false
   property var installedThemes: ({})
   property var stockThemes: ({})
   property var installedRepositories: []
@@ -32,6 +33,7 @@ Item {
   readonly property int resourceLimitExitCode: 65
 
   readonly property bool canInstallSelected: !!selectedEntry
+    && inventoryReady
     && selectedEntry.canInstall === true
     && !busy
   readonly property bool canOpenSelectedSource: !!selectedEntry
@@ -42,7 +44,9 @@ Item {
     ? "Installing…"
     : (canOpenSelectedSource
         ? "View source"
-        : (selectedEntry ? String(selectedEntry.status || "Install") : "Install"))
+        : (selectedEntry && !inventoryReady
+            ? "Waiting for inventory…"
+            : (selectedEntry ? String(selectedEntry.status || "Install") : "Install")))
   readonly property string confirmationMessage:
     ThemeCatalogModel.installConfirmationMessage(pendingEntry)
 
@@ -120,7 +124,7 @@ Item {
     confirmationOpen = false
     pendingEntry = null
 
-    if (!entry || entry !== selectedEntry || entry.canInstall !== true || busy || !installScriptPath) {
+    if (!entry || entry !== selectedEntry || entry.canInstall !== true || !inventoryReady || busy || !installScriptPath) {
       focusRequested()
       return
     }
@@ -133,13 +137,12 @@ Item {
     installProc.start()
   }
 
-  // catalog.sh renders at most OUTPUT_MAX_BYTES (4 MiB) from a cache it
-  // refreshes with curl under its own 10 s connect and 30 s total limits;
-  // 45 s covers that refresh, and the cap is the script's own output bound.
+  // Two sequential source refreshes may each take 45 seconds. Leave time
+  // for both and for parsing/publication before the supervisor ends the run.
   Run {
     id: catalogProc
     environment: root.helperEnvironment
-    deadlineMs: 45000
+    deadlineMs: 100000
     maxBytes: 4194304
     keepBytes: 4194304
 
@@ -148,7 +151,7 @@ Item {
       root.catalogStderr = String(result.stderr || "").trim()
       if (result.state !== "ok") {
         root.rows = []
-        root.errorMessage = root.catalogStderr || (result.state === "timeout"
+        root.errorMessage = root.catalogStderr || result.reason || (result.state === "timeout"
           ? "The theme catalog did not answer in time"
           : "Could not load the theme catalog")
         root.focusRequested()
