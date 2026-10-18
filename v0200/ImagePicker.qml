@@ -22,7 +22,7 @@ import "FolderBrowseModel.js" as FolderBrowseModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.10.3"
+  readonly property string buildIdentity: "0.10.4"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   // Every program starts through Run (omakit/Run.qml) with a closed
@@ -97,6 +97,8 @@ Item {
   property bool folderShowHidden: false
   property var folderListing: ({ rows: [], folders: 0, images: 0, truncated: false })
   property bool wallpaperPickerRequest: false
+  property var pendingWallpaperSelection: null
+  property string wallpaperApplyError: ""
   readonly property string wallpaperCommandStatePath: Quickshell.env("HOME") + "/.config/omarchy/wallpaper-command-center.json"
   readonly property string themeMemoryStatePath: Quickshell.env("HOME") + "/.config/omarchy/theme-manager-memory.json"
   readonly property string themeCollectionsStatePath: Quickshell.env("HOME") + "/.config/omarchy/theme-collections.json"
@@ -371,7 +373,8 @@ Item {
       themeInventoryReady: themeManager.inventoryReady,
       themeInventoryError: themeManager.errorMessage,
       wallpaperLoading: wallhaven.loading,
-      wallpaperError: wallhaven.errorMessage,
+      wallpaperError: wallpaperApplyError || wallhaven.errorMessage,
+      wallpaperApplying: wallpaperApply.busy,
       wallpaperTotal: wallhaven.totalResults,
       catalogScriptPath: themeCatalog.catalogScriptPath,
       wallpaperScriptPath: wallhaven.commandPath,
@@ -701,27 +704,16 @@ Item {
     clearPendingInstall()
 
     if (!installed) {
-      if (purpose === "finish") cancel()
-      else if (purpose) showStatus("Wallpaper install failed")
+      if (purpose === "finish") {
+        wallpaperApplyError = "Could not prepare the selected wallpaper"
+        showStatus(wallpaperApplyError)
+      } else if (purpose) showStatus("Wallpaper install failed")
       return
     }
 
     if (purpose === "finish") {
-      rememberWallpaperSelection(installed)
-      if (wallhavenMode || folderMode)
-        syncInstalledWallpaperIntoLocalSnapshot(installed)
-      // Belt-and-suspenders: menu-images waiter also bg-sets after the selection
-      // file is written. Direct set covers the intermittent case where accept ran
-      // but the waiter already moved on / selection handoff raced.
-      if (!memoryBgProc.running) {
-        memoryBgProc.command = [omarchyBin + "/omarchy-theme-bg-set", installed]
-        memoryBgProc.start()
-      }
-      applySerial = serial || requestSerial
-      writeSmallFile(selectionPath, installed + "\n")
-      writeSmallFile(donePath, "")
-      if (applySerial === requestSerial)
-        opened = false
+      if (serial !== requestSerial || !opened) return
+      beginWallpaperApply(installed, selectionPath, donePath, serial)
       return
     }
 
@@ -1945,32 +1937,57 @@ Item {
     writeSmallFile(path, "")
   }
 
+  function beginWallpaperApply(path, selectionPath, donePath, serial) {
+    if (!opened || serial !== requestSerial || wallpaperApply.busy) return false
+    wallpaperApplyError = ""
+    pendingWallpaperSelection = { path: path, selectionPath: selectionPath, donePath: donePath, serial: serial }
+    if (wallpaperApply.apply(path, serial)) return true
+    pendingWallpaperSelection = null
+    wallpaperApplyError = "Could not start wallpaper application"
+    return false
+  }
+
+  function completeWallpaperApply(path, serial, error) {
+    const request = pendingWallpaperSelection
+    if (!request || request.serial !== serial) return
+    pendingWallpaperSelection = null
+    if (!opened || serial !== requestSerial) return
+    if (error) {
+      wallpaperApplyError = error
+      showStatus(error)
+      Qt.callLater(focusPicker)
+      return
+    }
+    rememberWallpaperSelection(path)
+    if (wallhavenMode || folderMode) syncInstalledWallpaperIntoLocalSnapshot(path)
+    writeSmallFile(request.selectionPath, path + "\n")
+    writeSmallFile(request.donePath, "")
+    requestActive = false
+    selectionFile = ""
+    doneFile = ""
+    opened = false
+  }
+
   function finishSelection(path) {
     if (!path || !selectionFile) {
       cancel()
       return
     }
 
-    const themeName = ThemeMemoryModel.safeThemeName(currentThemeName)
-    const target = ThemeMemoryModel.safePath(path)
-    if (wallpaperPickerActive && themeName && target
-        && ThemeMemoryModel.needsWallpaperInstall(target, homeDir, themeName)) {
-      const activeSelectionFile = selectionFile
-      const activeDoneFile = doneFile
-      const serial = requestSerial
-      applySerial = serial
-      requestActive = false
-      selectionFile = ""
-      doneFile = ""
-      if (beginWallpaperInstall("finish", target, activeSelectionFile, activeDoneFile, serial))
+    if (wallpaperPickerActive) {
+      if (wallpaperInstallProc.running || wallpaperApply.busy) return
+      const themeName = ThemeMemoryModel.safeThemeName(currentThemeName)
+      const target = ThemeMemoryModel.safePath(path)
+      if (!target) return
+      wallpaperApplyError = ""
+      if (themeName && ThemeMemoryModel.needsWallpaperInstall(target, homeDir, themeName)) {
+        if (!beginWallpaperInstall("finish", target, selectionFile, doneFile, requestSerial))
+          wallpaperApplyError = "Could not prepare the selected wallpaper"
         return
-      // Fall through with the original path if install could not start.
-      selectionFile = activeSelectionFile
-      doneFile = activeDoneFile
-      requestActive = !!doneFile
+      }
+      beginWallpaperApply(target, selectionFile, doneFile, requestSerial)
+      return
     }
-
-    if (wallpaperPickerActive) rememberWallpaperSelection(path)
 
     const activeSelectionFile = selectionFile
     const activeDoneFile = doneFile
@@ -1978,14 +1995,13 @@ Item {
     requestActive = false
     selectionFile = ""
     doneFile = ""
-
     writeSmallFile(activeSelectionFile, path + "\n")
     writeSmallFile(activeDoneFile, "")
-    if (applySerial === requestSerial)
-      opened = false
+    if (applySerial === requestSerial) opened = false
   }
 
   function applySelected() {
+    if (wallpaperPickerActive && (wallpaperApply.busy || wallpaperInstallProc.running)) return
     if (catalogMode) {
       themeCatalog.requestPrimaryAction()
       return
@@ -2025,6 +2041,9 @@ Item {
   }
 
   function cancel() {
+    wallpaperApply.cancel()
+    pendingWallpaperSelection = null
+    wallpaperApplyError = ""
     if (catalogMode) leaveCatalog(false)
     if (folderMode) leaveFolderBrowser(false)
     if (wallhavenMode) leaveWallhaven(false)
@@ -2041,6 +2060,9 @@ Item {
   }
 
   function closeSelector(nextDoneFile) {
+    wallpaperApply.cancel()
+    pendingWallpaperSelection = null
+    wallpaperApplyError = ""
     if (catalogMode) leaveCatalog(false)
     if (folderMode) leaveFolderBrowser(false)
     if (wallhavenMode) leaveWallhaven(false)
@@ -2085,6 +2107,9 @@ Item {
   }
 
   function openSelector(nextImageDirs, nextImageRows, nextSelectedImage, nextSelectionFile, nextDoneFile, nextShowLabels, nextFilterable) {
+    wallpaperApply.cancel()
+    pendingWallpaperSelection = null
+    wallpaperApplyError = ""
     // Warm the Icons chip before first paint.
     ensureFooterIconsReady()
     if (catalogMode) leaveCatalog(false)
@@ -2643,7 +2668,11 @@ Item {
       const purpose = String(root.pendingInstallPurpose || "")
       root.clearPendingInstall()
       if (purpose === "finish") {
-        root.cancel()
+        if (root.opened) {
+          root.wallpaperApplyError = String(result.stderr || result.reason || "Could not prepare the selected wallpaper").trim()
+          root.showStatus(root.wallpaperApplyError)
+          Qt.callLater(root.focusPicker)
+        }
         return
       }
       // ensure/migrate with a vanished catalog source must not keep stale memory.
@@ -2661,6 +2690,14 @@ Item {
     onResultsReady: function(rows, append) { root.acceptIconsBrowseResults(ImagePickerModel.signalRows(rows), append) }
     onIconInstalled: function(themeName, themeNames) { root.onIconPackInstalled(themeName, themeNames) }
     onFocusRequested: Qt.callLater(root.focusPicker)
+  }
+
+  WallpaperApplyController {
+    id: wallpaperApply
+    commandPath: root.omarchyBin + "/omarchy-theme-bg-set"
+    helperEnvironment: root.omarchyEnvironment
+    onApplied: function(path, serial) { root.completeWallpaperApply(path, serial, "") }
+    onFailed: function(message, serial) { root.completeWallpaperApply("", serial, message) }
   }
 
   WallpaperBrowserController {
@@ -4653,10 +4690,10 @@ Item {
         }
 
         Text {
-          visible: !root.wallhavenMode
-            && (themeManager.errorMessage !== "" || themeCatalog.errorMessage !== "")
+          visible: root.wallpaperApplyError !== "" || (!root.wallhavenMode
+            && (themeManager.errorMessage !== "" || themeCatalog.errorMessage !== ""))
           width: parent.width
-          text: themeCatalog.errorMessage || themeManager.errorMessage
+          text: root.wallpaperApplyError || themeCatalog.errorMessage || themeManager.errorMessage
           color: Commons.Color.urgent
           style: Text.Outline
           styleColor: root.chromeOutline

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.10.4 - 2026-10-18
+
+- Apply every wallpaper selection explicitly, including already-local images
+  selected after navigating from themes to wallpapers. That route previously
+  returned a filename without the caller that normally applies it.
+- Complete the selection and remember it only after the background command
+  succeeds. Keep failures visible for retry, and discard stale completions.
+- Add regression tests for application, failure, retry, and cancelled requests,
+  plus a Qt-only signal compatibility suite. The same suite passes with Qt
+  6.11.2 and 6.12.0 and independently confirms the signal representation change.
+- Document the host update timeline and both host integration contracts in
+  UPSTREAM.md, including the live checks required after a host update.
+
 ## 0.10.3 - 2026-10-18
 
 - Fix the actual list handoff failure on Qt 6.12: QML `var` signals deliver

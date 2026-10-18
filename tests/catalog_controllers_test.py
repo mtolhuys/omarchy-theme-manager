@@ -14,6 +14,9 @@ if os.environ.get("FIXTURE_CASE") == "failure":
     print(json.dumps({"error": "Fixture provider is unavailable"}))
     print("Fixture provider is unavailable", file=sys.stderr)
     sys.exit(1)
+if os.path.basename(sys.argv[0]) == "apply":
+    assert sys.argv[1] == os.environ["HOME"] + "/wallpapers/with spaces.png"
+    sys.exit(0)
 if os.path.basename(sys.argv[0]) == "themes":
     data = {"themes": [{"name": "Example", "repositoryUrl": "https://github.com/example/omarchy-example-theme"}]}
 else:
@@ -33,9 +36,9 @@ class CatalogControllersTest(unittest.TestCase):
             shutil.copy(ROOT / "tests/qml/catalog-controllers.qml", target / "shell.qml")
             shutil.copytree(ROOT / "omakit", target / "omakit")
             for name in ("ThemeCatalogController.qml", "ThemeCatalogModel.js",
-                         "WallpaperBrowserController.qml", "WallpaperBrowserModel.js", "ImagePickerModel.js"):
+                         "WallpaperBrowserController.qml", "WallpaperBrowserModel.js", "ImagePickerModel.js", "WallpaperApplyController.qml"):
                 shutil.copy(ROOT / "v0200" / name, target / "runtime" / name)
-            for name in ("themes", "wallpapers"):
+            for name in ("themes", "wallpapers", "apply"):
                 helper = target / name
                 helper.write_text(HELPER)
                 helper.chmod(0o700)

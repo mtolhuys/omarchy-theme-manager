@@ -11,6 +11,9 @@ ShellRoot {
   property int wallpaperResponses: 0
   property string fixtureCase: "ok"
   property double resetAt: 0
+  property int appliedCount: 0
+  property int applyFailures: 0
+  readonly property string chosenPath: Quickshell.env("HOME") + "/wallpapers/with spaces.png"
 
   function check(value, message) {
     if (!value) {
@@ -41,6 +44,18 @@ ShellRoot {
     onResultsReady: delivered => {
       const rows = ImagePickerModel.signalRows(delivered)
       if (suite.check(Array.isArray(rows) && rows.length === 1, "wallpaper rows survived Run as an array")) suite.wallpaperResponses++
+    }
+  }
+
+  WallpaperApplyController {
+    id: applyWallpaper
+    commandPath: Quickshell.env("FIXTURE_DIR") + "/apply"
+    helperEnvironment: ({ FIXTURE_CASE: suite.fixtureCase })
+    onApplied: function(path, serial) {
+      if (suite.check(path === suite.chosenPath && serial === 17, "apply preserves path and request identity")) suite.appliedCount++
+    }
+    onFailed: function(message, serial) {
+      if (suite.check(message.indexOf("Fixture provider is unavailable") >= 0 && serial === 18, "apply failure is reported")) suite.applyFailures++
     }
   }
 
@@ -88,6 +103,15 @@ ShellRoot {
       } else if (suite.stage === 5 && !wallpapers.loading) {
         if (!suite.check(suite.wallpaperResponses === 3, "cancelled response was ignored")) return
         if (!suite.check(Date.now() - suite.resetAt < 2000, "reset cancels the slow request before retry")) return
+        suite.stage = 6
+        if (!suite.check(applyWallpaper.apply(suite.chosenPath, 17), "wallpaper application starts")) return
+      } else if (suite.stage === 6 && !applyWallpaper.busy) {
+        if (!suite.check(suite.appliedCount === 1, "wallpaper command completed before success")) return
+        suite.fixtureCase = "failure"
+        suite.stage = 7
+        applyWallpaper.apply(suite.chosenPath, 18)
+      } else if (suite.stage === 7 && !applyWallpaper.busy) {
+        if (!suite.check(suite.appliedCount === 1 && suite.applyFailures === 1, "failed apply never reports success")) return
         console.log("CONTROLLERS PASS")
         Qt.quit()
       }
