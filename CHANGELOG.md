@@ -26,6 +26,16 @@
   directly, re-entering `open()` positionally, and that contract and its
   theme-preview detection are unchanged. Add contract tests pinning both
   routes.
+- Open the theme picker on the current theme (#3). Loading fresh rows chose
+  the selected index before the rows were swapped in, and the theme-collection
+  bindings settled through match sets that did not hold it, so the picker
+  opened on the first theme until a reopen took the cached-rows path. Rows are
+  now swapped in first; a QML test runs the real collections controller.
+- Strip every PNG chunk that does not affect rendering from wallpaper catalog
+  thumbnails and downloads before the shell decodes them. Compressed text and
+  ICC chunks could expand to gigabytes inside the shell before Qt's pixel
+  allocation limit applies. Thumbnails cached by earlier releases are stripped
+  on reuse.
 
 ## 0.10.4 - 2026-10-18
 
