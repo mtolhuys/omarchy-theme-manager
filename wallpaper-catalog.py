@@ -55,6 +55,9 @@ COLLECTION_SEEDS = {
 VALID_SORTS = {"featured", "popular", "newest"}
 VALID_LICENSES = {"any", "public-domain", "attribution", "share-alike"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+# Uncompressed chunks that affect how a PNG renders; strip_png drops the rest.
+PNG_RENDER_CHUNKS = {b"IHDR", b"PLTE", b"IDAT", b"IEND", b"tRNS", b"gAMA", b"cHRM", b"sRGB", b"sBIT", b"bKGD", b"pHYs"}
 IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp"}
 BRANDING = re.compile(
     r"\b(gnome|ubuntu|debian|fedora|manjaro|nixos|windows|mac\s*os|linux\s*mint|"
@@ -681,7 +684,44 @@ def search_page(params: dict) -> dict:
 
 
 def image_signature(data: bytes) -> bool:
-    return data.startswith(b"\xff\xd8\xff") or data.startswith(b"\x89PNG\r\n\x1a\n") or (data.startswith(b"RIFF") and data[8:12] == b"WEBP")
+    return data.startswith(b"\xff\xd8\xff") or data.startswith(PNG_SIGNATURE) or (data.startswith(b"RIFF") and data[8:12] == b"WEBP")
+
+
+def strip_png(data: bytes) -> bytes:
+    """Keep only the chunks a PNG needs to render; other formats pass unchanged.
+
+    The shell decodes these files in its own process. zTXt, iTXt and iCCP are
+    compressed, and libpng inflates up to 1000 of them at 8 MB each while Qt
+    reads the header, before its pixel-allocation limit applies, so a small
+    file from a provider could exhaust the shell's memory. None of them are
+    needed for a preview or a wallpaper.
+    """
+    if not data.startswith(PNG_SIGNATURE):
+        return data
+    kept = [PNG_SIGNATURE]
+    dropped = False
+    offset = len(PNG_SIGNATURE)
+    while offset + 12 <= len(data):
+        length = int.from_bytes(data[offset:offset + 4], "big")
+        kind = data[offset + 4:offset + 8]
+        end = offset + 12 + length
+        if end > len(data) or (offset == len(PNG_SIGNATURE) and kind != b"IHDR"):
+            break
+        if kind in PNG_RENDER_CHUNKS:
+            kept.append(data[offset:end])
+        else:
+            dropped = True
+        offset = end
+        if kind == b"IEND":
+            return b"".join(kept) if dropped or end != len(data) else data
+    raise CatalogError("wallpaper provider returned an invalid PNG")
+
+
+def read_cached_image(directory: PluginDirectory, name: str) -> bytes:
+    with directory.open() as dir_fd:
+        file_fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dir_fd)
+        with os.fdopen(file_fd, "rb", closefd=True) as handle:
+            return handle.read(MAX_IMAGE_BYTES + 1)
 
 
 def remote_image(url: str, directory: PluginDirectory, stem: str, maximum: int) -> Path:
@@ -691,11 +731,18 @@ def remote_image(url: str, directory: PluginDirectory, stem: str, maximum: int) 
         extension = ".jpg"
     destination = directory.path / (stem + extension)
     if destination.is_file() and not destination.is_symlink() and destination.stat().st_size > 0:
-        return destination
+        # Files cached before 0.10.5 kept every PNG chunk: strip them on reuse.
+        try:
+            cached = read_cached_image(directory, destination.name)
+            stripped = strip_png(cached) if len(cached) <= maximum else None
+        except (OSError, CatalogError):
+            stripped = None
+        if stripped is not None:
+            return destination if stripped is cached else atomic_write(directory, destination.name, stripped)
     data = request_bytes(url, maximum)
     if not image_signature(data):
         raise CatalogError("wallpaper provider returned invalid image data")
-    return atomic_write(directory, destination.name, data)
+    return atomic_write(directory, destination.name, strip_png(data))
 
 
 def local_thumbnail(item: dict) -> Path:

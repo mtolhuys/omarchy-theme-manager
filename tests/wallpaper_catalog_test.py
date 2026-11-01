@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+import zlib
 from unittest import mock
 
 
@@ -217,6 +218,57 @@ class WallpaperCatalogTest(unittest.TestCase):
         self.assertTrue(catalog.image_signature(b"\xff\xd8\xffimage"))
         self.assertTrue(catalog.image_signature(b"\x89PNG\r\n\x1a\nimage"))
         self.assertFalse(catalog.image_signature(b"<html>provider error</html>"))
+
+    def test_strips_compressed_png_chunks_before_the_shell_decodes_them(self):
+        bomb = zlib.compress(b"\0" * (1024 * 1024), 9)
+        hostile = png(
+            (b"zTXt", b"Comment\0\0" + bomb),
+            (b"iTXt", b"XML\0\1\0\0\0" + bomb),
+            (b"iCCP", b"icc\0\0" + bomb),
+            (b"tEXt", b"Author\0provider"),
+        )
+        stripped = catalog.strip_png(hostile)
+        self.assertEqual(chunk_types(stripped), [b"IHDR", b"IDAT", b"IEND"])
+        self.assertEqual(stripped, png())
+        clean = png((b"pHYs", b"\0\0\x0b\x13\0\0\x0b\x13\1"))
+        self.assertIs(catalog.strip_png(clean), clean)
+        jpeg = b"\xff\xd8\xff\xfe\0\x05note"
+        self.assertIs(catalog.strip_png(jpeg), jpeg)
+        for invalid in (png()[:-4], catalog.PNG_SIGNATURE + png()[33:]):
+            with self.assertRaises(catalog.CatalogError):
+                catalog.strip_png(invalid)
+
+    def test_downloads_and_cached_thumbnails_keep_no_compressed_png_chunks(self):
+        hostile = png((b"zTXt", b"Comment\0\0" + zlib.compress(b"\0" * 4096)))
+        with tempfile.TemporaryDirectory() as home:
+            with mock.patch.dict(os.environ, home_environment(home)):
+                directory = catalog.plugin_cache_dir("wallpaper-thumbs")
+                with mock.patch.object(catalog, "request_bytes", return_value=hostile):
+                    fresh = catalog.remote_image("https://example.invalid/a.png", directory, "ocs-1", catalog.MAX_THUMB_BYTES)
+                self.assertEqual(fresh.read_bytes(), png())
+                # A thumbnail cached by an earlier release is cleaned on reuse, offline.
+                catalog.atomic_write(directory, "ocs-2.png", hostile)
+                with mock.patch.object(catalog, "request_bytes", side_effect=AssertionError("network used")):
+                    cached = catalog.remote_image("https://example.invalid/b.png", directory, "ocs-2", catalog.MAX_THUMB_BYTES)
+                self.assertEqual(cached.read_bytes(), png())
+
+
+def png(*extra):
+    """A valid 1x1 grey PNG, with extra (type, data) chunks before its pixels."""
+    def chunk(kind, data):
+        return len(data).to_bytes(4, "big") + kind + data + zlib.crc32(kind + data).to_bytes(4, "big")
+    header = chunk(b"IHDR", (1).to_bytes(4, "big") * 2 + b"\x08\0\0\0\0")
+    pixels = chunk(b"IDAT", zlib.compress(b"\0\x80"))
+    return catalog.PNG_SIGNATURE + header + b"".join(chunk(k, d) for k, d in extra) + pixels + chunk(b"IEND", b"")
+
+
+def chunk_types(data):
+    types, offset = [], len(catalog.PNG_SIGNATURE)
+    while offset < len(data):
+        length = int.from_bytes(data[offset:offset + 4], "big")
+        types.append(data[offset + 4:offset + 8])
+        offset += 12 + length
+    return types
 
 
 if __name__ == "__main__":
