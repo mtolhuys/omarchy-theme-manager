@@ -22,7 +22,7 @@ import "FolderBrowseModel.js" as FolderBrowseModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.10.4"
+  readonly property string buildIdentity: "0.10.5"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   // Every program starts through Run (omakit/Run.qml) with a closed
@@ -434,11 +434,20 @@ Item {
   // object: the selection and done files a waiting omarchy-menu-images
   // reads. A child process could be ended by that teardown (Run ends its
   // group on destruction), which is why these two writes are not processes.
+  // Quickshell's FileView silently skips a setText() whose text equals the
+  // text it already holds, even after the path changed (issue #4): an empty
+  // done mark after an earlier one is dropped and omarchy-menu-images polls
+  // forever. The done-file waiter only checks existence, so every write
+  // carries a distinct serial and never matches the held text.
+  property int smallFileSerial: 0
+
   function writeSmallFile(path, text) {
     const target = String(path || "")
     if (!target.startsWith("/")) return false
+    const body = String(text || "")
+    smallFileSerial += 1
     smallFileWriter.path = target
-    smallFileWriter.setText(String(text || ""))
+    smallFileWriter.setText(body === "" ? "done " + smallFileSerial + "\n" : body)
     return true
   }
 
@@ -1422,17 +1431,41 @@ Item {
   function openWallpapersSwitcher() {
     if (wallpaperPickerActive || iconsMode || iconsBrowseMode) return
     if (!(themeManager.themePickerActive || catalogMode)) return
+    switcherRun.switcherKind = "wallpapers"
     switcherRun.command = [omarchyBin + "/omarchy-theme-bg-switcher"]
     switcherRun.start()
     cancel()
   }
 
+  function startThemeSwitcher() {
+    switcherRun.switcherKind = "themes"
+    switcherRun.command = [omarchyBin + "/omarchy-theme-switcher"]
+    switcherRun.start()
+  }
+
   function openThemesSwitcher() {
     if (themeManager.themePickerActive && !wallpaperPickerActive && !iconsMode && !iconsBrowseMode) return
     if (!(localWallpaperMode || wallhavenMode || folderMode || iconsMode || iconsBrowseMode)) return
-    switcherRun.command = [omarchyBin + "/omarchy-theme-switcher"]
-    switcherRun.start()
+    startThemeSwitcher()
     cancel()
+  }
+
+  // Omarchy 4.5+ summons the picker with {"source":"themes"} for the Theme
+  // menu and SUPER+CTRL+T; 4.0.x never sends that payload and starts
+  // omarchy-theme-switcher itself, so both routes must stay.
+  function openThemesSummoned() {
+    // A closed picker keeps its last selection state, so themePickerActive
+    // stays true after a theme session ends; without root.opened here the
+    // second summon no-op'd until a wallpaper summon reset the selection.
+    if (root.opened && themeManager.themePickerActive && !wallpaperPickerActive && !iconsMode && !iconsBrowseMode) return
+    if (localWallpaperMode || wallhavenMode || folderMode || iconsMode || iconsBrowseMode) {
+      openThemesSwitcher()
+      return
+    }
+    // No picker request is on screen to cancel, and no menu wrapper will
+    // apply the script's output: its image-selector IPC reopens this picker
+    // on the theme rows, and switcherRun's "themes" finish applies the choice.
+    startThemeSwitcher()
   }
 
   function browseForCurrentMode() {
@@ -2352,6 +2385,10 @@ Item {
     if (payload) {
       try { args = JSON.parse(payload) || {} } catch (_error) { args = {} }
     }
+    if (args.source === "themes") {
+      openThemesSummoned()
+      return
+    }
     const dirs = String(args.imageDirs || imageDirs)
     const rows = String(args.imageRows || "")
     const sel = String(args.selectedImage || selectedImage)
@@ -2489,9 +2526,38 @@ Item {
   // they open; a menu the user left open for half an hour is ended.
   Run {
     id: switcherRun
+    property string switcherKind: ""
     environment: root.omarchyEnvironment
     deadlineMs: 1800000
     maxBytes: 65536
+    onFinished: function(result) {
+      // A run superseded by start() reports cancelled after the next start
+      // already set switcherKind, so only a run that ended on its own may
+      // read it; every start sets it, so nothing needs to clear it.
+      if (switcherKind !== "themes" || result.state !== "ok") return
+      // The switcher prints the chosen theme's name; the menu action that
+      // normally starts it applies the output, but cross-navigation from the
+      // wallpaper picker started it here, so applying it is the picker's job
+      // the same way a wallpaper selection already invokes omarchy-theme-bg-set.
+      const name = ThemeMemoryModel.safeThemeName(String(result.stdout || "").split("\n", 1)[0])
+      if (!name) return
+      themeSetRun.command = [root.omarchyBin + "/omarchy-theme-set", name]
+      themeSetRun.start()
+    }
+  }
+
+  // omarchy-theme-set regenerates every themed config and runs hooks: 120 s
+  // covers a slow first run; a line or two of output.
+  Run {
+    id: themeSetRun
+    environment: root.omarchyEnvironment
+    deadlineMs: 120000
+    maxBytes: 65536
+    onFinished: function(result) {
+      if (result.state === "ok" || !root.opened) return
+      root.showStatus("Could not switch theme (" + result.state + "): "
+        + String(result.stderr || result.reason || "").trim())
+    }
   }
 
   // flock -n answers at once: 5 s covers a stalled runtime directory.
