@@ -205,6 +205,15 @@ test("answers the Omarchy 4.5 themes summon without losing the 4.0 route", async
     /onFinished: function\(result\) \{\s*if \(switcherKind !== "themes"\) return/
   )
 
+  // A closed picker keeps its last selection state, so themePickerActive
+  // stays true after a theme session ends. The skip guard must require the
+  // picker to be on screen: without root.opened, the second themes summon
+  // no-op'd until a wallpaper summon reset the selection state.
+  assert.match(
+    picker,
+    /if \(root\.opened && themeManager\.themePickerActive && !wallpaperPickerActive && !iconsMode && !iconsBrowseMode\) return/
+  )
+
   // Omarchy 4.0.x never sends the payload: its menu runs the switcher script
   // directly, so the positional open() contract and the theme-preview
   // detection it relies on must stay exactly as they were.

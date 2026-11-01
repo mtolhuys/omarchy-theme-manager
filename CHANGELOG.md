@@ -10,6 +10,11 @@
   The summon now relays to the theme switcher from any state — closed, an open
   picker, or the catalog — and applies the chosen theme itself, because the
   4.5 menu action starts no wrapper that would.
+- Fix the second themes summon after a theme session: a closed picker keeps
+  its last selection state, so the "already showing themes" skip guard fired
+  against a closed picker and every following summon did nothing until a
+  wallpaper summon reset the selection state. The guard now requires the
+  picker to actually be on screen.
 - Keep the Omarchy 4.0 route untouched: 4.0.x menus run the switcher script
   directly, re-entering `open()` positionally, and that contract and its
   theme-preview detection are unchanged. Add contract tests pinning both

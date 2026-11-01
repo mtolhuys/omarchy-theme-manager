@@ -1454,7 +1454,10 @@ Item {
   // menu and SUPER+CTRL+T; 4.0.x never sends that payload and starts
   // omarchy-theme-switcher itself, so both routes must stay.
   function openThemesSummoned() {
-    if (themeManager.themePickerActive && !wallpaperPickerActive && !iconsMode && !iconsBrowseMode) return
+    // A closed picker keeps its last selection state, so themePickerActive
+    // stays true after a theme session ends; without root.opened here the
+    // second summon no-op'd until a wallpaper summon reset the selection.
+    if (root.opened && themeManager.themePickerActive && !wallpaperPickerActive && !iconsMode && !iconsBrowseMode) return
     if (localWallpaperMode || wallhavenMode || folderMode || iconsMode || iconsBrowseMode) {
       openThemesSwitcher()
       return
