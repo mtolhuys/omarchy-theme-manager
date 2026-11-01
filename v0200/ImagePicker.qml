@@ -2125,8 +2125,12 @@ Item {
         wallpaperFavoriteContext())
 
     root.loadedImageRows = rows
-    root.selectedIndex = root.indexForSelectedImage(newImages)
+    // Rows first, then the index (issue #3): the collection bindings settle
+    // through intermediate match sets while the rows swap, and an index chosen
+    // before then was not among them, so the carousel sync fell back to the
+    // first theme. tests/qml/theme-selection.qml runs the real controller.
     root.replaceImageArray(newImages)
+    root.selectedIndex = root.indexForSelectedImage(newImages)
     root.imagesLoaded = true
     root.layoutSettled = true
 

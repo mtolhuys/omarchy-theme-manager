@@ -745,6 +745,17 @@ test("theme discovery does not wait for the installation inventory", async () =>
   assert.equal(loads, 1)
 })
 
+test("loads rows before choosing the selected index (issue #3)", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const picker = await read(manifest.entryPoints.overlay)
+  const body = picker.match(/function loadRows\(rows, reveal\) \{([\s\S]*?)\n  \}/)[1]
+  const swap = body.indexOf("root.replaceImageArray(newImages)")
+  const select = body.indexOf("root.selectedIndex = root.indexForSelectedImage(newImages)")
+  assert.ok(swap >= 0 && select > swap, "loadRows must swap the rows in before it selects")
+  // The real controller and carousel sync behind this order.
+  assert.match(await read("tests/qml/theme-selection.qml"), /ThemeCollectionsController \{/)
+})
+
 test("normalizes lists at the picker signal boundary before strict array guards", async () => {
   const runtimeDir = dirname(JSON.parse(await read("manifest.json")).entryPoints.overlay)
   const picker = await read(join(runtimeDir, "ImagePicker.qml"))
