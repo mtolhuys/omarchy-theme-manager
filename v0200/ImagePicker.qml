@@ -2531,15 +2531,15 @@ Item {
     deadlineMs: 1800000
     maxBytes: 65536
     onFinished: function(result) {
-      if (switcherKind !== "themes") return
-      switcherKind = ""
+      // A run superseded by start() reports cancelled after the next start
+      // already set switcherKind, so only a run that ended on its own may
+      // read it; every start sets it, so nothing needs to clear it.
+      if (switcherKind !== "themes" || result.state !== "ok") return
       // The switcher prints the chosen theme's name; the menu action that
       // normally starts it applies the output, but cross-navigation from the
       // wallpaper picker started it here, so applying it is the picker's job
       // the same way a wallpaper selection already invokes omarchy-theme-bg-set.
-      const name = result.state === "ok"
-        ? ThemeMemoryModel.safeThemeName(String(result.stdout || "").split("\n", 1)[0])
-        : ""
+      const name = ThemeMemoryModel.safeThemeName(String(result.stdout || "").split("\n", 1)[0])
       if (!name) return
       themeSetRun.command = [root.omarchyBin + "/omarchy-theme-set", name]
       themeSetRun.start()

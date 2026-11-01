@@ -200,10 +200,14 @@ test("answers the Omarchy 4.5 themes summon without losing the 4.0 route", async
   assert.match(picker, /function openThemesSummoned\(\) \{[\s\S]*?openThemesSwitcher\(\)/)
   assert.match(picker, /function openThemesSummoned\(\) \{[\s\S]*?startThemeSwitcher\(\)/)
   assert.match(picker, /function openThemesSwitcher\(\) \{[\s\S]*?startThemeSwitcher\(\)/)
+  // Run.start() cancels a live run, whose cancelled result arrives after the
+  // next start set switcherKind: only a run that ended ok may consume it, or
+  // W then T from the picker dropped the chosen theme.
   assert.match(
     picker,
-    /onFinished: function\(result\) \{\s*if \(switcherKind !== "themes"\) return/
+    /onFinished: function\(result\) \{[^}]*?if \(switcherKind !== "themes" \|\| result\.state !== "ok"\) return/
   )
+  assert.doesNotMatch(picker, /switcherKind = ""/)
 
   // A closed picker keeps its last selection state, so themePickerActive
   // stays true after a theme session ends. The skip guard must require the
