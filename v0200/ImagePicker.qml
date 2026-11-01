@@ -22,7 +22,7 @@ import "FolderBrowseModel.js" as FolderBrowseModel
 Item {
   id: root
 
-  readonly property string buildIdentity: "0.10.4"
+  readonly property string buildIdentity: "0.10.5"
   // Injected by omarchy-shell; defaults to the session OMARCHY_PATH.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
   // Every program starts through Run (omakit/Run.qml) with a closed
@@ -1437,13 +1437,32 @@ Item {
     cancel()
   }
 
-  function openThemesSwitcher() {
-    if (themeManager.themePickerActive && !wallpaperPickerActive && !iconsMode && !iconsBrowseMode) return
-    if (!(localWallpaperMode || wallhavenMode || folderMode || iconsMode || iconsBrowseMode)) return
+  function startThemeSwitcher() {
     switcherRun.switcherKind = "themes"
     switcherRun.command = [omarchyBin + "/omarchy-theme-switcher"]
     switcherRun.start()
+  }
+
+  function openThemesSwitcher() {
+    if (themeManager.themePickerActive && !wallpaperPickerActive && !iconsMode && !iconsBrowseMode) return
+    if (!(localWallpaperMode || wallhavenMode || folderMode || iconsMode || iconsBrowseMode)) return
+    startThemeSwitcher()
     cancel()
+  }
+
+  // Omarchy 4.5+ summons the picker with {"source":"themes"} for the Theme
+  // menu and SUPER+CTRL+T; 4.0.x never sends that payload and starts
+  // omarchy-theme-switcher itself, so both routes must stay.
+  function openThemesSummoned() {
+    if (themeManager.themePickerActive && !wallpaperPickerActive && !iconsMode && !iconsBrowseMode) return
+    if (localWallpaperMode || wallhavenMode || folderMode || iconsMode || iconsBrowseMode) {
+      openThemesSwitcher()
+      return
+    }
+    // No picker request is on screen to cancel, and no menu wrapper will
+    // apply the script's output: its image-selector IPC reopens this picker
+    // on the theme rows, and switcherRun's "themes" finish applies the choice.
+    startThemeSwitcher()
   }
 
   function browseForCurrentMode() {
@@ -2362,6 +2381,10 @@ Item {
     let args = {}
     if (payload) {
       try { args = JSON.parse(payload) || {} } catch (_error) { args = {} }
+    }
+    if (args.source === "themes") {
+      openThemesSummoned()
+      return
     }
     const dirs = String(args.imageDirs || imageDirs)
     const rows = String(args.imageRows || "")

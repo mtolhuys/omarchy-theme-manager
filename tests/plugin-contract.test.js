@@ -9,7 +9,7 @@ const read = (path) => readFile(join(process.cwd(), path), "utf8")
 test("keeps the published Theme Manager identity as the sole picker clone", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   assert.equal(manifest.id, "io.github.mtolhuys.theme-manager")
-  assert.equal(manifest.version, "0.10.4")
+  assert.equal(manifest.version, "0.10.5")
   assert.deepEqual(manifest.kinds, ["overlay"])
   assert.match(manifest.entryPoints.overlay, /^v[0-9]{4}\/ImagePicker\.qml$/)
   assert.equal(manifest.omarchy.clonedFrom, "omarchy.image-picker")
@@ -182,6 +182,34 @@ test("routes theme and wallpaper features by request context", async () => {
   assert.match(picker, /catalogStickyQuery/)
   assert.match(picker, /refreshCatalogRows/)
   assert.doesNotMatch(picker, /io\.github\.mtolhuys\.wallpaper-manager/)
+})
+
+test("answers the Omarchy 4.5 themes summon without losing the 4.0 route", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const picker = await read(manifest.entryPoints.overlay)
+
+  // Omarchy 4.5+ summons omarchy.image-picker with {"source":"themes"} for the
+  // Theme menu and SUPER+CTRL+T. Without the branch, the payload fell through
+  // open() into openSelector's default dirs and the summon surfaced the
+  // wallpaper picker instead of the theme picker.
+  assert.match(picker, /if \(args\.source === "themes"\) \{\s*openThemesSummoned\(\)\s*return\s*\}/)
+
+  // The summoned relay reuses the cross-nav switcher while a picker is open,
+  // and starts omarchy-theme-switcher itself from a closed picker, where no
+  // menu wrapper exists to apply the chosen theme afterwards.
+  assert.match(picker, /function openThemesSummoned\(\) \{[\s\S]*?openThemesSwitcher\(\)/)
+  assert.match(picker, /function openThemesSummoned\(\) \{[\s\S]*?startThemeSwitcher\(\)/)
+  assert.match(picker, /function openThemesSwitcher\(\) \{[\s\S]*?startThemeSwitcher\(\)/)
+  assert.match(
+    picker,
+    /onFinished: function\(result\) \{\s*if \(switcherKind !== "themes"\) return/
+  )
+
+  // Omarchy 4.0.x never sends the payload: its menu runs the switcher script
+  // directly, so the positional open() contract and the theme-preview
+  // detection it relies on must stay exactly as they were.
+  assert.match(picker, /const dirs = String\(args\.imageDirs \|\| imageDirs\)/)
+  assert.match(picker, /ThemeManagerModel\.isThemePreviewPath\(imageArray\[0\]\.filePath\)/)
 })
 
 test("organises installed themes locally through the existing state writer", async () => {

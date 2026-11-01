@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.10.5 - 2026-11-01
+
+- Answer Omarchy 4.5's theme summons. The 4.5 Theme menu and SUPER+CTRL+T
+  summon the image picker with `{"source":"themes"}` instead of running
+  `omarchy-theme-switcher`; the payload previously fell through `open()` into
+  the default wallpaper directories, so the shortcut and menu entry opened the
+  wallpaper picker and themes were reachable only through the `T` shortcut.
+  The summon now relays to the theme switcher from any state — closed, an open
+  picker, or the catalog — and applies the chosen theme itself, because the
+  4.5 menu action starts no wrapper that would.
+- Keep the Omarchy 4.0 route untouched: 4.0.x menus run the switcher script
+  directly, re-entering `open()` positionally, and that contract and its
+  theme-preview detection are unchanged. Add contract tests pinning both
+  routes.
+
 ## 0.10.4 - 2026-10-18
 
 - Apply every wallpaper selection explicitly, including already-local images
