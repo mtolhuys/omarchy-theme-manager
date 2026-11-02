@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.6 - 2026-11-02
+
+- Load theme catalog and Pling icon previews only from stripped local files.
+  Both came from community data and were handed to Qt by URL, so they skipped
+  the PNG chunk stripping 0.10.5 added for wallpaper thumbnails.
+  `wallpaper-catalog.py --preview` now fetches each preview a card brings into
+  view from its own host allowlist (raw GitHub, GitHub attachments and their
+  asset redirect, Pling images), strips it, and caches it under
+  `preview-thumbs`; the picker loads only that file. Catalog and Pling rows
+  carry the URL as `previewUrl` and no longer have a remote `thumbnailPath`.
+
 ## 0.10.5 - 2026-11-01
 
 - Answer Omarchy 4.5's theme summons. The 4.5 Theme menu and SUPER+CTRL+T
