@@ -104,7 +104,8 @@ const iconRow = (item) => {
       id,
       filePath: "ocs-icons:" + id,
       fileName: "ocs-icons-" + id,
-      thumbnailPath: safePreviewUrl(item.previewUrl || item.previewpic1),
+      thumbnailPath: "",
+      previewUrl: safePreviewUrl(item.previewUrl || item.previewpic1),
       displayName: name,
       summary
     },

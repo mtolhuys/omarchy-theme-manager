@@ -252,6 +252,54 @@ class WallpaperCatalogTest(unittest.TestCase):
                     cached = catalog.remote_image("https://example.invalid/b.png", directory, "ocs-2", catalog.MAX_THUMB_BYTES)
                 self.assertEqual(cached.read_bytes(), png())
 
+    def test_catalog_and_pling_previews_reach_the_shell_only_as_stripped_files(self):
+        hostile = png((b"iCCP", b"icc\0\0" + zlib.compress(b"\0" * 4096)))
+        raw = "https://raw.githubusercontent.com/owner/theme/main/preview.png"
+        attachment = "https://github.com/user-attachments/assets/f0b6952e-c436-4c03-b496-0ecc6679210a"
+        pling = "https://images.pling.com/cache/770x540-4/img/candy.png"
+        with tempfile.TemporaryDirectory() as home:
+            with mock.patch.dict(os.environ, home_environment(home)):
+                with mock.patch.object(catalog, "request_bytes", return_value=hostile) as fetch:
+                    result = catalog.preview_images([raw, attachment, raw, pling, "https://evil.example/x.png"])
+                self.assertEqual(fetch.call_count, 3)
+                for call in fetch.call_args_list:
+                    self.assertIs(call.kwargs["trusted"], catalog.trusted_preview_host)
+                    self.assertIs(call.kwargs["opener"], catalog.PREVIEW_OPENER)
+                previews = result["previews"]
+                self.assertEqual([entry["url"] for entry in previews], [raw, attachment, pling, "https://evil.example/x.png"])
+                self.assertEqual(previews[3], {"url": "https://evil.example/x.png", "error": "refusing untrusted preview URL"})
+                for entry in previews[:3]:
+                    path = Path(entry["path"])
+                    self.assertEqual(path.parent, Path(home, "cache", "omarchy-theme-manager", "preview-thumbs"))
+                    # Named by content: an attachment URL has no extension.
+                    self.assertRegex(path.name, r"^[0-9a-f]{32}\.png$")
+                    self.assertEqual(path.read_bytes(), png())
+                with mock.patch.object(catalog, "request_bytes", side_effect=AssertionError("network used")):
+                    self.assertEqual(catalog.preview_images([raw])["previews"][0]["path"], previews[0]["path"])
+                with mock.patch.object(catalog, "request_bytes", return_value=b"<html>"):
+                    other = "https://raw.githubusercontent.com/owner/theme/main/other.png"
+                    self.assertIn("invalid image data", catalog.preview_images([other])["previews"][0]["error"])
+
+    def test_preview_requests_and_redirects_stay_on_preview_hosts(self):
+        for host in ("raw.githubusercontent.com", "images.pling.com", "github-production-user-asset-6210df.s3.amazonaws.com"):
+            self.assertTrue(catalog.trusted_preview_host(host), host)
+        for host in ("example.com", "raw.githubusercontent.com.evil", "github-production-user-asset-x.s3.amazonaws.com", "upload.wikimedia.org"):
+            self.assertFalse(catalog.trusted_preview_host(host), host)
+        # Wallpaper requests keep their own allowlist.
+        self.assertFalse(catalog.trusted_host("raw.githubusercontent.com"))
+        for url in (
+            "http://raw.githubusercontent.com/owner/theme/main/preview.png",
+            "https://github.com/owner/theme/raw/main/preview.png",
+            "https://images.pling.com/" + "a" * 600,
+        ):
+            with self.assertRaises(catalog.CatalogError):
+                catalog.preview_image(url)
+        handler = catalog.SafeRedirectHandler(catalog.trusted_preview_host)
+        with self.assertRaises(catalog.CatalogError):
+            handler.redirect_request(None, None, 302, "Found", {}, "https://evil.example/x.png")
+        with mock.patch.object(catalog, "PREVIEW_LIMIT", 2), mock.patch.object(catalog, "preview_image", side_effect=lambda url: Path("/x")):
+            self.assertEqual(len(catalog.preview_images(["a", "b", "c"])["previews"]), 2)
+
 
 def png(*extra):
     """A valid 1x1 grey PNG, with extra (type, data) chunks before its pixels."""

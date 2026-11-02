@@ -61,11 +61,10 @@ test("parses OCS search rows with allowlisted previews only", () => {
 
   assert.equal(parsed.error, "")
   assert.equal(parsed.rows.length, 2)
-  assert.equal(
-    parsed.rows[0].thumbnailPath,
-    "https://images.pling.com/cache/770x540-4/img/candy.png"
-  )
-  assert.equal(parsed.rows[1].thumbnailPath, "")
+  // A row never carries a URL the shell would load: only the preview cache does.
+  assert.equal(parsed.rows[0].thumbnailPath, "")
+  assert.equal(parsed.rows[0].previewUrl, "https://images.pling.com/cache/770x540-4/img/candy.png")
+  assert.equal(parsed.rows[1].previewUrl, "")
   assert.equal(parsed.meta.hasMore, true)
 })
 

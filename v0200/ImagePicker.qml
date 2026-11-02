@@ -1318,9 +1318,17 @@ Item {
     if (!opened || !wallpaperPickerActive) return ""
     const item = currentItem()
     if (!item) return ""
-    // A folder card's filePath is a directory; only its preview is an image.
-    if (folderMode && item.entryKind !== "image") return String(item.thumbnailPath || "")
-    return String(item.thumbnailPath || item.filePath || "")
+    // A folder card's filePath is a directory, and a catalog or Pling row's
+    // is an id; only their previews are images.
+    if ((folderMode && item.entryKind !== "image") || item.previewUrl) return previewPathFor(item)
+    return previewPathFor(item) || String(item.filePath || "")
+  }
+
+  // The local image a card shows. A theme catalog or Pling row names its
+  // preview by URL, which only remotePreviews turns into a cached file.
+  function previewPathFor(item) {
+    if (!item) return ""
+    return item.previewUrl ? remotePreviews.pathFor(item.previewUrl) : String(item.thumbnailPath || "")
   }
 
   function nameForPath(path) {
@@ -2802,6 +2810,12 @@ Item {
     onFocusRequested: Qt.callLater(root.focusPicker)
   }
 
+  RemotePreviewController {
+    id: remotePreviews
+    commandPath: root.pluginScriptPath("wallpaper-catalog.py")
+    helperEnvironment: root.helperEnvironment
+  }
+
   ThemeCatalogController {
     id: themeCatalog
     catalogScriptPath: root.pluginScriptPath("catalog.sh")
@@ -3279,7 +3293,8 @@ Item {
               : null
             readonly property string filePath: imageData ? imageData.filePath : ""
             readonly property string fileName: imageData ? imageData.fileName : ""
-            readonly property string thumbnailPath: imageData ? imageData.thumbnailPath : ""
+            readonly property string previewUrl: imageData ? String(imageData.previewUrl || "") : ""
+            readonly property string thumbnailPath: root.previewPathFor(imageData)
 
             readonly property bool folderCard: root.folderMode
               && !!imageData
@@ -3295,6 +3310,14 @@ Item {
               : (matched && Math.abs(relativeIndex) <= 7)
             property bool sourceActivated: nearby
             onNearbyChanged: if (nearby) sourceActivated = true
+            onSourceActivatedChanged: requestPreview()
+            onPreviewUrlChanged: requestPreview()
+            Component.onCompleted: requestPreview()
+
+            function requestPreview() {
+              if (sourceActivated && previewUrl) remotePreviews.request(previewUrl)
+            }
+
             onFilePathChanged: {
               // Drop sticky activation when this index now points at a new file
               // so Image.source rebinds instead of keeping a deleted pixmap.
@@ -3383,13 +3406,11 @@ Item {
               Image {
                 id: image
                 anchors.fill: parent
-                // The plugin owns local wallpaper thumbnails. Theme catalog and
-                // Pling preview URLs have already passed model allowlists.
+                // Only local files: theme catalog and Pling previews arrive
+                // through remotePreviews, fetched and stripped by the helper.
                 visible: !root.iconsMode || root.iconsBrowseMode
                 source: item.sourceActivated && item.thumbnailPath && (!root.iconsMode || root.iconsBrowseMode)
-                  ? (root.catalogMode || root.iconsBrowseMode
-                      ? item.thumbnailPath
-                      : Util.fileUrl(item.thumbnailPath))
+                  ? Util.fileUrl(item.thumbnailPath)
                   : ""
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: root.wallhavenMode || root.catalogMode || root.iconsBrowseMode || root.folderMode
@@ -3596,6 +3617,7 @@ Item {
                           && !!item.imageData
                           && item.imageData.entryKind === "image"))
                   && (!item.thumbnailPath || image.status === Image.Error)
+                  && (!item.previewUrl || remotePreviews.settled(item.previewUrl))
                 text: "Preview unavailable"
                 color: root.foreground
                 font.pixelSize: Style.font.title

@@ -305,3 +305,36 @@ test("reports incompatible provider records instead of presenting an empty catal
   assert.deepEqual(parsed.rows, [])
   assert.equal(model.parseSearchResponse(response([]), "/tmp").error, "")
 })
+
+test("asks the helper for previews and accepts only its cached preview files", () => {
+  const urls = Array.from({ length: 14 }, (_, index) => `https://images.pling.com/img/${index}.png`)
+  const args = model.previewArguments(urls)
+  assert.equal(args[0], "wallpaper-catalog")
+  assert.equal(args.at(-1), "--json")
+  assert.equal(args.filter((value) => value === "--preview").length, model.maxPreviewsPerRequest)
+
+  const cache = "/home/me/.cache"
+  const folder = cache + "/omarchy-theme-manager/preview-thumbs/"
+  const [good, failed, escaped, remote, unasked] = urls
+  const previews = model.parsePreviewResponse(
+    JSON.stringify({
+      previews: [
+        { url: good, path: folder + "0123456789abcdef0123456789abcdef.png" },
+        { url: failed, error: "preview host returned HTTP 404" },
+        { url: escaped, path: folder + "../../../../.ssh/id_ed25519.png" },
+        { url: remote, path: "https://images.pling.com/img/3.png" },
+        { url: unasked, path: folder + "fedcba9876543210fedcba9876543210.png" }
+      ]
+    }),
+    urls.slice(0, 4),
+    cache
+  )
+  assert.deepEqual(previews, {
+    [good]: folder + "0123456789abcdef0123456789abcdef.png",
+    [failed]: "",
+    [escaped]: "",
+    [remote]: ""
+  })
+  // Every URL asked for is settled, even when the answer is unreadable.
+  assert.deepEqual(model.parsePreviewResponse("not json", [good], cache), { [good]: "" })
+})

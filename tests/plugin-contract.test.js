@@ -756,6 +756,27 @@ test("loads rows before choosing the selected index (issue #3)", async () => {
   assert.match(await read("tests/qml/theme-selection.qml"), /ThemeCollectionsController \{/)
 })
 
+test("loads theme catalog and Pling previews only from the stripped preview cache", async () => {
+  const runtimeDir = dirname(JSON.parse(await read("manifest.json")).entryPoints.overlay)
+  const picker = await read(join(runtimeDir, "ImagePicker.qml"))
+  const controller = await read(join(runtimeDir, "RemotePreviewController.qml"))
+  // Every card image is a local file; no mode passes a URL to Image.
+  assert.match(
+    picker,
+    /source: item\.sourceActivated && item\.thumbnailPath && \(!root\.iconsMode \|\| root\.iconsBrowseMode\)\s+\? Util\.fileUrl\(item\.thumbnailPath\)\s+: ""/
+  )
+  assert.match(picker, /readonly property string thumbnailPath: root\.previewPathFor\(imageData\)/)
+  assert.match(picker, /item\.previewUrl \? remotePreviews\.pathFor\(item\.previewUrl\)/)
+  assert.match(
+    picker,
+    /RemotePreviewController \{\s+id: remotePreviews\s+commandPath: root\.pluginScriptPath\("wallpaper-catalog\.py"\)/
+  )
+  assert.match(
+    controller,
+    /WallpaperBrowserModel\.parsePreviewResponse\(result\.stdout, batch, root\.cacheHome\)/
+  )
+})
+
 test("normalizes lists at the picker signal boundary before strict array guards", async () => {
   const runtimeDir = dirname(JSON.parse(await read("manifest.json")).entryPoints.overlay)
   const picker = await read(join(runtimeDir, "ImagePicker.qml"))

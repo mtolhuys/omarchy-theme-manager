@@ -114,6 +114,21 @@ test("sanitizes remote display values and allowlists GitHub preview hosts", () =
   )
 })
 
+test("names catalog previews by URL and never as a path the shell would load", () => {
+  const preview = "https://raw.githubusercontent.com/example/theme/main/preview.png"
+  const [row] = model.catalogRows({
+    themes: [
+      {
+        name: "Night",
+        repositoryUrl: "https://github.com/example/night-theme",
+        previewUrl: preview
+      }
+    ]
+  })
+  assert.equal(row.previewUrl, preview)
+  assert.equal(row.thumbnailPath, "")
+})
+
 test("keeps catalog notes as bounded discovery metadata", () => {
   const [row] = model.catalogRows({
     officialRepositories: ["https://github.com/example/omarchy-safe-theme"],

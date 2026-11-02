@@ -113,7 +113,8 @@ const searchFields = (row) => {
 
 // The sanitized display values of one catalog entry, independent of the local inventory.
 const catalogEntryFields = (entry, installSlug) => ({
-  thumbnailPath: safePreviewUrl(entry.previewUrl || entry.preview_url),
+  thumbnailPath: "",
+  previewUrl: safePreviewUrl(entry.previewUrl || entry.preview_url),
   displayName: plainTextValue(entry.name || installSlug, 120),
   owner: plainTextValue(entry.owner || entry.github_owner, 80),
   description: plainTextValue(entry.description, 500),

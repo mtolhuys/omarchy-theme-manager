@@ -2,6 +2,9 @@ const maxQueryLength = 120
 const maxWallpapersPerResponse = 96
 const maxSearchResponseLength = 4 * 1024 * 1024
 const maxDownloadResponseLength = 8 * 1024
+const maxPreviewsPerRequest = 12
+const maxPreviewResponseLength = 64 * 1024
+const previewFilePattern = /^[0-9a-f]{32}\.(?:jpg|png|webp)$/
 const wallpaperIdPattern = /^(?:omarchy|ocs|commons)-[0-9]{1,20}$/
 const imagePathPattern = /\.(?:jpe?g|png|webp)$/i
 
@@ -334,6 +337,46 @@ const parseDownloadResponse = (text, homeDir, dataHome) => {
   return { error: "", path }
 }
 
+// Theme catalog and Pling previews reach the shell only as files the helper
+// fetched and stripped (wallpaper-catalog.py --preview); the URLs themselves
+// were already allowlisted by the model that made the row.
+const previewArguments = (urls) => {
+  const args = ["wallpaper-catalog"]
+  for (const url of urls.slice(0, maxPreviewsPerRequest)) args.push("--preview", stringValue(url))
+  args.push("--json")
+  return args
+}
+
+const safePreviewPath = (path, cacheHome) => {
+  const value = stringValue(path)
+  const cacheRoot = stringValue(cacheHome).replace(/\/+$/, "")
+  const expectedPrefix = cacheRoot + "/omarchy-theme-manager/preview-thumbs/"
+  return cacheRoot.startsWith("/") &&
+    value.startsWith(expectedPrefix) &&
+    previewFilePattern.test(value.slice(expectedPrefix.length))
+    ? value
+    : ""
+}
+
+// The helper answers each requested URL with a path or an error; every URL
+// asked for gets an entry here, "" when it has no preview, so none is asked
+// for again.
+const parsePreviewResponse = (text, urls, cacheHome) => {
+  const previews = {}
+  for (const url of urls) previews[stringValue(url)] = ""
+  const responseText = stringValue(text)
+  if (responseText.length > maxPreviewResponseLength) return previews
+  const parsed = parsedJson(responseText)
+  const entries =
+    parsed.payload && Array.isArray(parsed.payload.previews) ? parsed.payload.previews : []
+  for (const entry of entries) {
+    const url = stringValue(entry && entry.url)
+    if (Object.prototype.hasOwnProperty.call(previews, url))
+      previews[url] = safePreviewPath(entry.path, cacheHome)
+  }
+  return previews
+}
+
 const boundedErrorText = (value) =>
   stringValue(value)
     .replace(/[\u0000-\u001f\u007f]+/g, " ")
@@ -410,6 +453,9 @@ if (typeof module !== "undefined") {
     parseSearchResponse,
     appendUniqueRows,
     parseDownloadResponse,
+    maxPreviewsPerRequest,
+    previewArguments,
+    parsePreviewResponse,
     processError
   }
 }

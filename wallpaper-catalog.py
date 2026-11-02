@@ -66,6 +66,16 @@ BRANDING = re.compile(
 )
 DIMENSION = re.compile(r"([1-9][0-9]{2,4})\s*[x×_-]\s*([1-9][0-9]{2,4})", re.IGNORECASE)
 ID_PATTERN = re.compile(r"^(omarchy|ocs|commons)-([0-9]{1,20})$")
+# Theme catalog and Pling icon previews come from community data, so the shell
+# never loads them by URL: --preview fetches each one from these hosts, strips
+# it like a wallpaper thumbnail, and hands back a cached file instead.
+PREVIEW_LIMIT = 12
+PREVIEW_URL_PATTERNS = (
+    re.compile(r"https://raw\.githubusercontent\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/[^/?#\s]+/[^?#\s]+(?:\?[^#\s]*)?"),
+    re.compile(r"https://github\.com/user-attachments/assets/[0-9A-Fa-f-]{36}"),
+    re.compile(r"https://images\.pling\.com/[A-Za-z0-9._~:/?\[\]@!$&'()*+,;=%-]+"),
+)
+PREVIEW_EXTENSIONS = {b"\xff\xd8\xff": ".jpg", PNG_SIGNATURE: ".png", b"RIFF": ".webp"}
 
 
 class CatalogError(RuntimeError):
@@ -204,6 +214,22 @@ def is_ocs_cdn_host(host: str) -> bool:
     return bool(re.fullmatch(r"ocs-dl\.[a-z0-9-]{2,24}\.cdn\.digitaloceanspaces\.com", host))
 
 
+def is_github_asset_host(host: str) -> bool:
+    return bool(re.fullmatch(r"github-production-user-asset-[0-9a-f]{1,12}\.s3\.amazonaws\.com", host))
+
+
+def trusted_preview_host(host: str) -> bool:
+    """Where a preview URL, or a redirect from one, may lead."""
+    host = host.lower()
+    return host in {
+        "raw.githubusercontent.com",
+        "github.com",
+        "objects.githubusercontent.com",
+        "private-user-images.githubusercontent.com",
+        "images.pling.com",
+    } or is_github_asset_host(host)
+
+
 def trusted_host(host: str) -> bool:
     host = host.lower()
     return host in {
@@ -216,23 +242,28 @@ def trusted_host(host: str) -> bool:
 
 
 class SafeRedirectHandler(HTTPRedirectHandler):
+    def __init__(self, trusted=trusted_host):
+        super().__init__()
+        self.trusted = trusted
+
     def redirect_request(self, request, fp, code, message, headers, new_url):
         parsed = urlparse(new_url)
-        if parsed.scheme != "https" or not trusted_host(parsed.hostname or ""):
+        if parsed.scheme != "https" or not self.trusted(parsed.hostname or ""):
             raise CatalogError("wallpaper provider redirected to an untrusted host")
         return super().redirect_request(request, fp, code, message, headers, new_url)
 
 
 OPENER = build_opener(SafeRedirectHandler())
+PREVIEW_OPENER = build_opener(SafeRedirectHandler(trusted_preview_host))
 
 
-def request_bytes(url: str, maximum: int, expected_json: bool = False) -> bytes:
+def request_bytes(url: str, maximum: int, expected_json: bool = False, trusted=trusted_host, opener=OPENER) -> bytes:
     parsed = urlparse(url)
-    if parsed.scheme != "https" or not trusted_host(parsed.hostname or ""):
+    if parsed.scheme != "https" or not trusted(parsed.hostname or ""):
         raise CatalogError("refusing untrusted wallpaper URL")
     request = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json" if expected_json else "image/*"})
     try:
-        with OPENER.open(request, timeout=30) as response:
+        with opener.open(request, timeout=30) as response:
             length = response.headers.get("Content-Length")
             if length and int(length) > maximum:
                 raise CatalogError(f"wallpaper response exceeds the {maximum} byte limit")
@@ -745,6 +776,37 @@ def remote_image(url: str, directory: PluginDirectory, stem: str, maximum: int) 
     return atomic_write(directory, destination.name, strip_png(data))
 
 
+def preview_image(url: str) -> Path:
+    """A stripped local copy of one theme catalog or Pling preview."""
+    if len(url) > 512 or not any(pattern.fullmatch(url) for pattern in PREVIEW_URL_PATTERNS):
+        raise CatalogError("refusing untrusted preview URL")
+    directory = plugin_cache_dir("preview-thumbs")
+    stem = hashlib.sha256(url.encode()).hexdigest()[:32]
+    for extension in set(PREVIEW_EXTENSIONS.values()):
+        destination = directory.path / (stem + extension)
+        if destination.is_file() and not destination.is_symlink() and destination.stat().st_size > 0:
+            return destination
+    data = request_bytes(url, MAX_THUMB_BYTES, trusted=trusted_preview_host, opener=PREVIEW_OPENER)
+    if not image_signature(data):
+        raise CatalogError("preview host returned invalid image data")
+    # Name the file by what it holds: an attachment URL carries no extension.
+    extension = next(value for key, value in PREVIEW_EXTENSIONS.items() if data.startswith(key))
+    return atomic_write(directory, stem + extension, strip_png(data))
+
+
+def preview_images(urls: list[str]) -> dict:
+    """One entry per requested URL, a path or an error, in request order."""
+    def entry(url):
+        try:
+            return {"url": url, "path": str(preview_image(url))}
+        except (CatalogError, OSError) as error:
+            return {"url": url, "error": clean_text(error)}
+
+    unique = list(dict.fromkeys(urls))[:PREVIEW_LIMIT]
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        return {"previews": list(executor.map(entry, unique))}
+
+
 def local_thumbnail(item: dict) -> Path:
     root = omarchy_root()
     source = Path(item["path"]).resolve(strict=True)
@@ -886,6 +948,7 @@ def parser() -> argparse.ArgumentParser:
     actions = value.add_mutually_exclusive_group(required=True)
     actions.add_argument("--wallpaper-thumbs", action="store_true")
     actions.add_argument("--wallpaper-download", metavar="ID")
+    actions.add_argument("--preview", metavar="URL", action="append")
     value.add_argument("--json", action="store_true")
     value.add_argument("--pages", type=int, default=1)
     value.add_argument("--page", type=int, default=1)
@@ -901,6 +964,8 @@ def main() -> int:
     try:
         if args.wallpaper_download:
             result = {"path": str(download_wallpaper(args.wallpaper_download))}
+        elif args.preview:
+            result = preview_images(args.preview)
         else:
             result = merged_search(normalize(args), min(4, max(1, args.pages)))
         print(json.dumps(result, separators=(",", ":")))
