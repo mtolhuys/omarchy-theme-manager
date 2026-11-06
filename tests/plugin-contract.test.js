@@ -225,6 +225,24 @@ test("answers the Omarchy 4.5 themes summon without losing the 4.0 route", async
   assert.match(picker, /ThemeManagerModel\.isThemePreviewPath\(imageArray\[0\]\.filePath\)/)
 })
 
+test("applies the chosen theme in a session the run's group kill cannot reach", async () => {
+  const manifest = JSON.parse(await read("manifest.json"))
+  const picker = await read(manifest.entryPoints.overlay)
+
+  // Omarchy 4.5's omarchy-theme-set exits once the screen has changed and
+  // leaves the app retints, the theme-set hooks and its cleanup running in its
+  // process group. Run TERMs the leader's group as soon as the leader exits, so
+  // a bare omarchy-theme-set lost all of that: the browser never took the new
+  // colour and no theme-set hook ran. setsid --fork puts theme-set in its own
+  // session; --wait keeps its exit status for the "Could not switch theme"
+  // status line.
+  assert.match(
+    picker,
+    /themeSetRun\.command = \["\/usr\/bin\/setsid", "--fork", "--wait", root\.omarchyBin \+ "\/omarchy-theme-set", name\]/
+  )
+  assert.doesNotMatch(picker, /themeSetRun\.command = \[root\.omarchyBin \+ "\/omarchy-theme-set"/)
+})
+
 test("organises installed themes locally through the existing state writer", async () => {
   const manifest = JSON.parse(await read("manifest.json"))
   const runtimeDir = dirname(manifest.entryPoints.overlay)

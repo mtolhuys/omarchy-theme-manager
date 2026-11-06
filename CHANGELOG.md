@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Finish Omarchy 4.5 theme switches started from the picker. On 4.5,
+  `omarchy-theme-set` returns once the screen has changed and leaves the app
+  retints, the theme-set hooks and its cleanup running in its process group;
+  `Run` ended that group as soon as the leader exited, so Chromium kept the old
+  colour, GTK, VS Code, pi and the other apps were never retinted, no
+  `theme-set.d` hook ran (this plugin's own `50-theme-manager-memory`
+  included), and background-transition snapshots piled up in
+  `~/.cache/omarchy/background-transitions`. The picker now starts it through
+  `setsid --fork --wait`, in a session of its own, and still reads its exit
+  status for the error toast.
+
 ## 0.10.6 - 2026-11-02
 
 - Load theme catalog and Pling icon previews only from stripped local files.
