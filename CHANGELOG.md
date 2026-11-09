@@ -1,8 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.10.7 - 2026-11-09
 
-- Finish Omarchy 4.5 theme switches started from the picker. On 4.5,
+- Finish Omarchy 4.5 theme switches started from the picker (#6). On 4.5,
   `omarchy-theme-set` returns once the screen has changed and leaves the app
   retints, the theme-set hooks and its cleanup running in its process group;
   `Run` ended that group as soon as the leader exited, so Chromium kept the old
