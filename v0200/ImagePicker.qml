@@ -2553,13 +2553,22 @@ Item {
       // the same way a wallpaper selection already invokes omarchy-theme-bg-set.
       const name = ThemeMemoryModel.safeThemeName(String(result.stdout || "").split("\n", 1)[0])
       if (!name) return
-      themeSetRun.command = [root.omarchyBin + "/omarchy-theme-set", name]
+      themeSetRun.command = ["/usr/bin/setsid", "--fork", "--wait", root.omarchyBin + "/omarchy-theme-set", name]
       themeSetRun.start()
     }
   }
 
   // omarchy-theme-set regenerates every themed config and runs hooks: 120 s
   // covers a slow first run; a line or two of output.
+  //
+  // Omarchy 4.5's omarchy-theme-set returns once the screen has changed and
+  // leaves the rest running behind it in its process group: the app retints
+  // (browser policy, GTK, VS Code, ...), the theme-set hooks, the thumbnail
+  // warmer, the background-snapshot cleanup and, after an intro, the Hyprland
+  // reload. Run ends the leader's group when the leader exits, which killed all
+  // of that within milliseconds. setsid --fork gives theme-set a session of its
+  // own, out of reach of that group kill, and --wait still hands its exit
+  // status back for the status line below.
   Run {
     id: themeSetRun
     environment: root.omarchyEnvironment
